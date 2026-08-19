@@ -1,0 +1,26 @@
+# Secrets — never commit
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+node_modules/
+workspace/03_build/node_modules/
+
+# Next.js build output
+.next/
+workspace/03_build/.next/
+out/
+workspace/03_build/out/
+
+# Supabase local dev
+.branches/
+.temp/
+workspace/03_build/supabase/.branches/
+workspace/03_build/supabase/.temp/
+
+# OS / editor cruft
+.DS_Store
+*.log
+.vscode/
+.idea/
