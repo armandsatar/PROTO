@@ -111,8 +111,8 @@ Appears **at the very end**, after content and design are finalized (so real dep
 - **Nano Banana 2** (Google Gemini image model) — visual tasks: cover generation, style edits, carousel art. Currently the cheapest high-quality image API on the market (~$0.02/image), responds well to natural-language edit instructions.
 - **Natural-language router** sits in front of both — user describes what they want ("recreate the cover in Eiko Ojala style"), PROTO routes automatically to the right API. No manual tool-picking.
 - **BYOK (Bring Your Own Key) model:** users connect their own Claude, Codex/OpenAI, Gemini, or Grok account and pay the provider directly. PROTO never carries AI usage cost, and never adds a markup.
-- **Zero-setup default for users with no AI subscription:** Llama via Groq (genuinely free, no credit card, works out of the box). Understood to be lower quality/speed than paid options — offered as "better than starting with nothing," not a permanent recommendation.
-- **Guided setup available** for users who want to upgrade from Llama to Claude/Gemini (simple walkthrough for creating a free-credit account — no technical docs).
+- **Zero-setup default for users with no AI subscription:** an open-weight model via Groq (genuinely free, no credit card, works out of the box). Not pinned to a specific model family in this spec — Groq's served lineup rotates (confirmed directly: `llama-3.3-70b-versatile` was live when this default was chosen, then returned `model_not_found` a day later; currently `openai/gpt-oss-120b`, see `workspace/01_spec/phase1-requirements.md` decision 16 for the live verification). Understood to be lower quality/speed than paid options — offered as "better than starting with nothing," not a permanent recommendation.
+- **Guided setup available** for users who want to upgrade from the Groq default to Claude/Gemini (simple walkthrough for creating a free-credit account — no technical docs).
 - All connector keys encrypted at rest, regardless of provider.
 
 ---
