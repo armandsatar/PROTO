@@ -43,11 +43,64 @@ function randInt(rng: () => number, [min, max]: [number, number]): number {
   return Math.floor(min + rng() * (max - min + 1));
 }
 
+// Mock listing titles deliberately vary in how closely they match the candidate
+// phrase's specific angle, not just its broad topic — otherwise every mock listing
+// trivially classifies as exact_angle (confirmed happening in Increment 4's first live
+// smoke test: 10/10 "exact_angle" because every title was just the phrase echoed back)
+// and lib/ai/classify.ts never gets exercised against real discrimination. Not a real
+// signal — just enough structure for the classifier and downstream scoring to see a
+// realistic mix of exact-angle / broad-topic / unrelated results, like a real search page.
+const UNRELATED_TITLES = [
+  'Wedding Invitation Template',
+  'Digital Sticker Pack',
+  'Recipe Card Printable',
+  'Workout Log Planner',
+  'Birthday Party Checklist',
+  'Travel Packing List Template',
+];
+
+const TITLE_SUFFIXES = ['Template', 'System', 'Printable', 'Digital Download', ''];
+
+type TitleBucket = 'exact' | 'broad' | 'unrelated';
+
+function pickBucket(rng: () => number): TitleBucket {
+  const r = rng();
+  if (r < 0.35) return 'exact';
+  if (r < 0.75) return 'broad';
+  return 'unrelated';
+}
+
+function capitalize(words: string[]): string {
+  return words.map((w) => (w.length ? w[0].toUpperCase() + w.slice(1) : w)).join(' ');
+}
+
+// Rough heuristic split: back half of the phrase reads as the "qualifier"/angle
+// (e.g. "for Freelancers"), front half as the "core" concept (e.g. "Notion Budget
+// Tracker"). Good enough for mock title variation, not a real NLP parse.
+function splitCoreAndQualifier(words: string[]): { core: string[]; qualifier: string[] } {
+  const splitPoint = Math.max(1, Math.ceil(words.length / 2));
+  return { core: words.slice(0, splitPoint), qualifier: words.slice(splitPoint) };
+}
+
+function titleForBucket(bucket: TitleBucket, words: string[], rng: () => number): string {
+  const suffix = TITLE_SUFFIXES[Math.floor(rng() * TITLE_SUFFIXES.length)];
+  if (bucket === 'unrelated') {
+    return UNRELATED_TITLES[Math.floor(rng() * UNRELATED_TITLES.length)];
+  }
+  const { core, qualifier } = splitCoreAndQualifier(words);
+  // exact: keeps the full phrase including its specific angle/qualifier.
+  // broad: drops the qualifier, same general topic but a different specific angle.
+  const base = bucket === 'exact' ? [...core, ...qualifier] : core;
+  const title = capitalize(base);
+  return suffix ? `${title} ${suffix}` : title;
+}
+
 export class MockEtsyDataSource implements EtsyDataSource {
   async searchListings(keywords: string[], options?: { limit?: number }): Promise<EtsySearchResult> {
     const limit = options?.limit ?? 20;
     const phrase = keywords.join(' ').trim().toLowerCase();
-    const wordCount = phrase.split(/\s+/).filter(Boolean).length || 1;
+    const words = phrase.split(/\s+/).filter(Boolean);
+    const wordCount = words.length || 1;
     const range = breadthRangeFor(wordCount);
 
     const seed = hashString(phrase);
@@ -61,9 +114,10 @@ export class MockEtsyDataSource implements EtsyDataSource {
       // Power-law-ish decay so top-ranked mock listings look more "winning" than the
       // tail, like a real search results page does — not just flat random noise.
       const decay = 1 - (i / Math.max(listingCount, 1)) * 0.7;
+      const bucket = pickBucket(rng);
       listings.push({
         listingId: `mock-${seed}-${i}`,
-        title: `${phrase} — mock listing ${i + 1}`,
+        title: titleForBucket(bucket, words, rng),
         numFavorers: Math.max(0, Math.round(randInt(rng, range.favorers) * decay)),
         views: Math.max(0, Math.round(randInt(rng, range.views) * decay)),
         price: Math.round(randInt(rng, range.price) * 100) / 100,

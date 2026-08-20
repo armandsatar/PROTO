@@ -171,15 +171,33 @@ grant select, insert, update on research_runs to authenticated;
 grant select, insert on title_candidates to authenticated;
 grant select, insert on title_selections to authenticated;
 
+-- SELECT/UPDATE include "owner_user_id = auth.uid()" as an alternative to membership,
+-- not just membership alone. Without it, INSERT ... RETURNING (what every ORM/client
+-- does after an insert, including supabase-js's .insert().select()) fails: RETURNING
+-- is governed by the SELECT policy, and a workspace's owner isn't a workspace_members
+-- row yet at the moment they create it — that row is a separate, subsequent insert.
+-- Found live via Increment 5's end-to-end smoke test (real RLS, not a service-role
+-- bypass) — reproduced directly in psql, confirmed via a debug_auth_uid() RPC that
+-- auth.uid() resolved correctly and matched owner_user_id, yet RETURNING still failed
+-- until this OR clause was added. Bootstrap ordering, not an auth resolution bug.
 create policy workspaces_select on workspaces
-  for select using (is_workspace_member(id));
+  for select using (is_workspace_member(id) or owner_user_id = auth.uid());
 create policy workspaces_insert on workspaces
   for insert with check (owner_user_id = auth.uid());
 create policy workspaces_update on workspaces
-  for update using (is_workspace_member(id)) with check (is_workspace_member(id));
+  for update
+  using (is_workspace_member(id) or owner_user_id = auth.uid())
+  with check (is_workspace_member(id) or owner_user_id = auth.uid());
 
+-- "user_id = auth.uid()" first, not just is_workspace_member(workspace_id): the same
+-- RETURNING-vs-SELECT-policy bootstrap issue as workspaces above applies here too — the
+-- membership row being inserted isn't visible to is_workspace_member's self-referential
+-- subquery within the same INSERT command. Confirmed live the same way (reproduced
+-- directly in psql after fixing workspaces alone still failed on this table).
+-- A user seeing their own membership row is also just correct on its own merits, not
+-- only a workaround — it doesn't need to go through a correlated subquery at all.
 create policy workspace_members_select on workspace_members
-  for select using (is_workspace_member(workspace_id));
+  for select using (user_id = auth.uid() or is_workspace_member(workspace_id));
 create policy workspace_members_insert on workspace_members
   for insert with check (
     is_workspace_member(workspace_id)
