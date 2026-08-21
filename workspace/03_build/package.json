@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "smoke:ai": "tsx --env-file=.env scripts/smoke-test-ai.ts",
+    "smoke:format-ai": "tsx --env-file=.env scripts/smoke-test-format-ai.ts",
     "smoke:research": "tsx --env-file=.env scripts/smoke-test-research.ts"
   },
   "dependencies": {
