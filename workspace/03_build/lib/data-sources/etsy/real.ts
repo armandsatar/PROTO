@@ -32,14 +32,16 @@ function toEtsyListing(record: EtsyListingRecord): EtsyListing {
   };
 }
 
-// UNVERIFIED — cannot be smoke-tested until the Etsy developer app is approved
-// (phase1-requirements.md decision 9, "in progress" as of 2026-08-19). Written against
-// Etsy's documented Open API v3 shape (findAllListingsActive / GET listings/active) —
-// see the sources list at the bottom of phase1-requirements.md. Re-verify field names
-// against a live response the first time a real key is used; Etsy's docs have moved
-// fields before (flagged in phase1-requirements.md §2.1).
+// Verified live 2026-08-21 against a real approved Etsy developer app (decision 9).
+// Etsy requires "x-api-key: keystring:sharedSecret" as of a Feb 9, 2026 policy change —
+// keystring alone (this file's original assumption, written before a real key existed
+// to test against) returns 403 "Shared secret is required in x-api-key header." Fixed
+// after reproducing that exact error on the live API, not from docs alone.
 export class RealEtsyDataSource implements EtsyDataSource {
-  constructor(private readonly apiKey: string) {}
+  constructor(
+    private readonly apiKey: string,
+    private readonly sharedSecret: string,
+  ) {}
 
   async searchListings(keywords: string[], options?: { limit?: number }): Promise<EtsySearchResult> {
     const limit = options?.limit ?? 20;
@@ -48,7 +50,7 @@ export class RealEtsyDataSource implements EtsyDataSource {
     url.searchParams.set('limit', String(limit));
 
     const response = await fetch(url.toString(), {
-      headers: { 'x-api-key': this.apiKey },
+      headers: { 'x-api-key': `${this.apiKey}:${this.sharedSecret}` },
     });
 
     if (!response.ok) {

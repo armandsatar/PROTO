@@ -15,10 +15,11 @@ export function getEtsyDataSource(): EtsyDataSource {
 
   if (mode === 'real') {
     const apiKey = process.env.ETSY_API_KEY;
-    if (!apiKey) {
-      throw new Error('ETSY_DATA_SOURCE=real but ETSY_API_KEY is not set');
+    const sharedSecret = process.env.ETSY_SHARED_SECRET;
+    if (!apiKey || !sharedSecret) {
+      throw new Error('ETSY_DATA_SOURCE=real but ETSY_API_KEY / ETSY_SHARED_SECRET are not both set');
     }
-    return new RealEtsyDataSource(apiKey);
+    return new RealEtsyDataSource(apiKey, sharedSecret);
   }
 
   return new MockEtsyDataSource();
