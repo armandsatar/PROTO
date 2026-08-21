@@ -3,8 +3,8 @@
 // same access path the real app will use), mock Etsy data, live Groq calls, real
 // persistence. Run with: npm run smoke:research (requires `supabase start` running
 // and GROQ_API_KEY set in .env).
-import { createClient } from '@supabase/supabase-js';
 import { runResearch } from '../lib/research/runResearch';
+import { bootstrapTestFixture, createTitleIdea } from './lib/testFixtures';
 
 interface CandidateRow {
   display_order: number;
@@ -18,78 +18,20 @@ interface CandidateRow {
 }
 
 async function main() {
-  const url = process.env.SUPABASE_URL;
-  const anonKey = process.env.SUPABASE_ANON_KEY;
-  if (!url || !anonKey) {
-    throw new Error('SUPABASE_URL / SUPABASE_ANON_KEY must be set in .env (see `supabase status` output)');
-  }
-
-  const authClient = createClient(url, anonKey);
-  const email = `smoke-test-${Date.now()}@test.local`;
-  const password = 'SmokeTest123!';
-
-  console.log('=== Signing up test user (local GoTrue) ===');
-  const { data: signUpData, error: signUpErr } = await authClient.auth.signUp({ email, password });
-  if (signUpErr) throw new Error(`Sign-up failed: ${signUpErr.message}`);
-
-  let accessToken = signUpData.session?.access_token;
-  if (!accessToken) {
-    console.log('No session from signUp — signing in explicitly...');
-    const { data: signInData, error: signInErr } = await authClient.auth.signInWithPassword({ email, password });
-    if (signInErr || !signInData.session) throw new Error(`Sign-in failed: ${signInErr?.message}`);
-    accessToken = signInData.session.access_token;
-  }
-  const userId = signUpData.user?.id;
-  if (!userId) throw new Error('Sign-up did not return a user id');
-  console.log(`Test user created: ${userId}`);
-
-  // Scoped to this user's token — RLS applies exactly as it would for a real request,
-  // not bypassed via a service-role key (lib/db/client.ts's whole point).
-  const supabase = createClient(url, anonKey, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-  });
-
-  console.log('\n=== Creating workspace + membership (through RLS) ===');
-  const { data: workspace, error: wsErr } = await supabase
-    .from('workspaces')
-    .insert({ owner_user_id: userId, name: 'Smoke Test Workspace' })
-    .select()
-    .single();
-  if (wsErr || !workspace) throw new Error(`Workspace creation failed: ${wsErr?.message}`);
-
-  const { error: memberErr } = await supabase
-    .from('workspace_members')
-    .insert({ workspace_id: workspace.id, user_id: userId, role: 'owner' });
-  if (memberErr) throw new Error(`Membership creation failed: ${memberErr.message}`);
-  console.log(`Workspace created: ${workspace.id}`);
-
-  console.log('\n=== Creating project + title idea ===');
-  const { data: project, error: projErr } = await supabase
-    .from('projects')
-    .insert({ workspace_id: workspace.id, created_by: userId, status: 'draft' })
-    .select()
-    .single();
-  if (projErr || !project) throw new Error(`Project creation failed: ${projErr?.message}`);
+  console.log('=== Bootstrapping test user + workspace + project (through RLS) ===');
+  const fixture = await bootstrapTestFixture('research');
+  console.log(`User: ${fixture.userId}  Workspace: ${fixture.workspaceId}  Project: ${fixture.projectId}`);
 
   const originalTitle = 'Notion Budget Tracker for Freelancers';
   const rationale =
     'Seeing rising interest in freelancer-specific finance tools, and existing Etsy budget templates are generic — not tailored to irregular freelance income.';
-
-  const { error: ideaErr } = await supabase.from('title_ideas').insert({
-    project_id: project.id,
-    workspace_id: workspace.id,
-    original_title: originalTitle,
-    rationale,
-    created_by: userId,
-  });
-  if (ideaErr) throw new Error(`Title idea creation failed: ${ideaErr.message}`);
-  console.log(`Project created: ${project.id}`);
+  await createTitleIdea(fixture, originalTitle, rationale);
 
   console.log('\n=== Running research (mock Etsy + live Groq) ===');
   const result = await runResearch({
-    supabase,
-    projectId: project.id,
-    workspaceId: workspace.id,
+    supabase: fixture.supabase,
+    projectId: fixture.projectId,
+    workspaceId: fixture.workspaceId,
     originalTitle,
     rationale,
   });
@@ -111,7 +53,7 @@ async function main() {
   console.log('OK: exactly 4 candidates, exactly 1 flagged is_original.');
 
   console.log('\n=== Verifying research_runs row reflects completion ===');
-  const { data: runRow, error: runFetchErr } = await supabase
+  const { data: runRow, error: runFetchErr } = await fixture.supabase
     .from('research_runs')
     .select('status, completed_at')
     .eq('id', result.runId)

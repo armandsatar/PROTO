@@ -10,7 +10,8 @@
     "test": "vitest run",
     "smoke:ai": "tsx --env-file=.env scripts/smoke-test-ai.ts",
     "smoke:format-ai": "tsx --env-file=.env scripts/smoke-test-format-ai.ts",
-    "smoke:research": "tsx --env-file=.env scripts/smoke-test-research.ts"
+    "smoke:research": "tsx --env-file=.env scripts/smoke-test-research.ts",
+    "smoke:format": "tsx --env-file=.env scripts/smoke-test-format.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
