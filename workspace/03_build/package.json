@@ -12,7 +12,8 @@
     "smoke:format-ai": "tsx --env-file=.env scripts/smoke-test-format-ai.ts",
     "smoke:research": "tsx --env-file=.env scripts/smoke-test-research.ts",
     "smoke:format": "tsx --env-file=.env scripts/smoke-test-format.ts",
-    "smoke:leadmagnet-ai": "tsx --env-file=.env scripts/smoke-test-leadmagnet-ai.ts"
+    "smoke:leadmagnet-ai": "tsx --env-file=.env scripts/smoke-test-leadmagnet-ai.ts",
+    "smoke:leadmagnet": "tsx --env-file=.env scripts/smoke-test-leadmagnet.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
