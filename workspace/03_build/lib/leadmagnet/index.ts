@@ -8,3 +8,5 @@ export type {
 } from './types';
 export { applyLeadMagnetGuardrail } from './guardrail';
 export { fallbackLeadMagnetRecommendation } from './fallbackRecommendation';
+export { recommendLeadMagnet } from './recommendLeadMagnet';
+export type { RecommendLeadMagnetInput } from './recommendLeadMagnet';
