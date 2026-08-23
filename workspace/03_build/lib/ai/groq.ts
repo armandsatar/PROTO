@@ -30,11 +30,21 @@ function getGroqClient(): Groq {
  * Structured JSON completion. Groq's json_object mode requires the literal word "JSON"
  * to appear somewhere in the messages, or the API rejects the request — callers must
  * follow that convention in their system prompts.
+ *
+ * `maxCompletionTokens` is optional and left unset by default (every Steps 2-7 caller
+ * relied on the API's own default, which was never a problem since none of them ever
+ * asked for more than a few sentences per field). Step 8's writer/review passes are
+ * the first callers that can genuinely need a long completion (up to ~2,000 words of
+ * prose for an ebook's `deep` tier, wrapped in JSON) — discovered live when an unset
+ * limit truncated a long completion mid-JSON, producing `json_validate_failed`. Only
+ * pass this when a caller actually needs more headroom than the default provides;
+ * omitting it preserves every prior phase's exact existing behavior.
  */
 export async function groqJsonCompletion(params: {
   systemPrompt: string;
   userPrompt: string;
   temperature?: number;
+  maxCompletionTokens?: number;
 }): Promise<unknown> {
   const groq = getGroqClient();
 
@@ -46,6 +56,7 @@ export async function groqJsonCompletion(params: {
     ],
     response_format: { type: 'json_object' },
     temperature: params.temperature ?? 0.3,
+    ...(params.maxCompletionTokens !== undefined ? { max_completion_tokens: params.maxCompletionTokens } : {}),
   });
 
   const content = completion.choices[0]?.message?.content;
