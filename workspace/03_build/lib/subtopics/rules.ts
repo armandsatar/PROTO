@@ -78,3 +78,29 @@ export function isFormatStale(
 export function isMapStale(listSnapshotAt: string, mapUpdatedAt: string): boolean {
   return listSnapshotAt !== mapUpdatedAt;
 }
+
+export type StalenessReason = 'title_changed' | 'format_changed' | 'transformation_map_changed' | null;
+
+/**
+ * §4.3's combined check across all three dependencies. Precedence (title > format >
+ * map) mirrors Step 5's two-dependency precedent: if the title changed, that's the
+ * more accurate root-cause reason to surface even when other dependencies have also
+ * technically diverged. A null `transformationMapUpdatedAt` (map not loaded/found)
+ * skips that check rather than treating it as stale — the caller decides whether that
+ * absence is itself an error.
+ */
+export function detectStalenessReason(
+  list: { titleCandidateId: string; formatRecommendationId: string; transformationMapSnapshotAt: string },
+  current: {
+    selectedCandidateId: string | null;
+    currentFormatRecommendationId: string | null;
+    transformationMapUpdatedAt: string | null;
+  },
+): StalenessReason {
+  if (isTitleStale(list.titleCandidateId, current.selectedCandidateId)) return 'title_changed';
+  if (isFormatStale(list.formatRecommendationId, current.currentFormatRecommendationId)) return 'format_changed';
+  if (current.transformationMapUpdatedAt !== null && isMapStale(list.transformationMapSnapshotAt, current.transformationMapUpdatedAt)) {
+    return 'transformation_map_changed';
+  }
+  return null;
+}

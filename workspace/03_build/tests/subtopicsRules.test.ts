@@ -11,6 +11,7 @@ import {
   isTitleStale,
   isFormatStale,
   isMapStale,
+  detectStalenessReason,
 } from '../lib/subtopics/rules';
 
 describe('targetCountForFormat (decision 2)', () => {
@@ -109,5 +110,60 @@ describe('isMapStale (decision 4: timestamp comparison, not an FK)', () => {
 
   it('is stale when the map has been updated since the snapshot was taken', () => {
     expect(isMapStale('2026-08-23T00:00:00Z', '2026-08-23T01:00:00Z')).toBe(true);
+  });
+});
+
+describe('detectStalenessReason (decision 4: combined 3-dependency check, title > format > map precedence)', () => {
+  const list = {
+    titleCandidateId: 'candidate-1',
+    formatRecommendationId: 'format-1',
+    transformationMapSnapshotAt: '2026-08-23T00:00:00Z',
+  };
+  const freshCurrent = {
+    selectedCandidateId: 'candidate-1',
+    currentFormatRecommendationId: 'format-1',
+    transformationMapUpdatedAt: '2026-08-23T00:00:00Z',
+  };
+
+  it('is null when nothing has changed', () => {
+    expect(detectStalenessReason(list, freshCurrent)).toBeNull();
+  });
+
+  it('reports title_changed when only the title diverges', () => {
+    expect(detectStalenessReason(list, { ...freshCurrent, selectedCandidateId: 'candidate-2' })).toBe('title_changed');
+  });
+
+  it('reports format_changed when only the format diverges', () => {
+    expect(detectStalenessReason(list, { ...freshCurrent, currentFormatRecommendationId: 'format-2' })).toBe('format_changed');
+  });
+
+  it('reports transformation_map_changed when only the map diverges', () => {
+    expect(detectStalenessReason(list, { ...freshCurrent, transformationMapUpdatedAt: '2026-08-23T01:00:00Z' })).toBe(
+      'transformation_map_changed',
+    );
+  });
+
+  it('prioritizes title over format and map when multiple have diverged', () => {
+    expect(
+      detectStalenessReason(list, {
+        selectedCandidateId: 'candidate-2',
+        currentFormatRecommendationId: 'format-2',
+        transformationMapUpdatedAt: '2026-08-23T01:00:00Z',
+      }),
+    ).toBe('title_changed');
+  });
+
+  it('prioritizes format over map when both have diverged but title has not', () => {
+    expect(
+      detectStalenessReason(list, {
+        ...freshCurrent,
+        currentFormatRecommendationId: 'format-2',
+        transformationMapUpdatedAt: '2026-08-23T01:00:00Z',
+      }),
+    ).toBe('format_changed');
+  });
+
+  it('skips the map check (does not report stale) when the map updated_at is unavailable', () => {
+    expect(detectStalenessReason(list, { ...freshCurrent, transformationMapUpdatedAt: null })).toBeNull();
   });
 });
