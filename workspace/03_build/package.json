@@ -18,7 +18,8 @@
     "smoke:transformationmap": "tsx --env-file=.env scripts/smoke-test-transformationmap.ts",
     "smoke:subtopics-ai": "tsx --env-file=.env scripts/smoke-test-subtopics-ai.ts",
     "smoke:subtopics": "tsx --env-file=.env scripts/smoke-test-subtopics.ts",
-    "smoke:content-ai": "tsx --env-file=.env scripts/smoke-test-content-ai.ts"
+    "smoke:content-ai": "tsx --env-file=.env scripts/smoke-test-content-ai.ts",
+    "smoke:content": "tsx --env-file=.env scripts/smoke-test-content.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
