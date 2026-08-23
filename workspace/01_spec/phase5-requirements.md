@@ -2,7 +2,7 @@
 
 **Scope:** Spec Step 7 only — PROTO generates a list of subtopics for the confirmed title, sized and shaped by the confirmed format and the confirmed transformation map, which the user can reorder, edit, delete, add to, and regenerate before confirming it as a stable input. Consumes the confirmed title (Steps 1–3), confirmed format (Step 4), and confirmed transformation map (Step 6). Does **not** cover Step 8 (Content Builder) or anything downstream (Design, Copywriting, Export, Pricing, Bundles) — those are future phases and are intentionally absent from this document. Lead magnet suitability (Step 5) is consumed nowhere in this document — see §3.1 for why.
 
-**Status: DRAFT — under review, partially confirmed.** Items (b) and 11 (target-count table, and the workbook+tracker reinterpretation) were confirmed by Arman on 2026-08-23 after a closer look, including a real-research follow-up on the quiz range specifically. The remaining items in §5 are still proposed defaults, not yet reviewed. This document mirrors the structure of `phase4-requirements.md` (explicit shape determination in §0 before any schema is committed to) more than `phase2/3-requirements.md`, because — as with Step 6 — Step 7's actual shape turned out not to be the recommend/confirm pattern. It also introduces a genuinely fourth shape not seen in Phases 1–4 — see §0.
+**Status: All 18 items in §5 confirmed by Arman on 2026-08-23** — two (target-count table, workbook+tracker reinterpretation) after a closer look and a real-research follow-up on the quiz range specifically; the remaining 16 confirmed as proposed. This document mirrors the structure of `phase4-requirements.md` (explicit shape determination in §0 before any schema is committed to) more than `phase2/3-requirements.md`, because — as with Step 6 — Step 7's actual shape turned out not to be the recommend/confirm pattern. It also introduces a genuinely fourth shape not seen in Phases 1–4 — see §0.
 
 ---
 
@@ -331,30 +331,30 @@ No eager push from Steps 4/6 into Step 7's code — same lazy, decoupled detecti
 
 ---
 
-## 5. Decisions Locked / Open Questions
+## 5. Decisions Locked (2026-08-23)
 
-| # | Item | Status |
-|---|---|---|
-| **(a)** | **Shape: three-table live-collection model (`subtopic_generations` log + `subtopic_lists` header + `subtopics` child rows), not recommend/confirm, not a single editable record.** The load-bearing call this entire document depends on. See §0. | **PROPOSED — needs Arman's explicit confirmation before build starts** |
-| **(b)** | **Target-count table per format (§2.2: tracker 5–8, workbook 10–15, ebook 8–12, quiz 4–6).** | **CONFIRMED by Arman 2026-08-23.** Quiz range was re-researched with real citations at his request (previously the only uncited number in the table — see §2.2) and held up under that research rather than changing. |
-| **(c)** | **Single-item regenerate-in-place is proposed in scope for v1** (§0.1, §1.7, §3.3), on the reasoning that it's a small marginal addition once the per-row shape exists, not a new shape of its own — but it is not strictly required (delete + manual re-add covers the same ground). | **PROPOSED — needs Arman's confirmation whether in scope now or deferred** |
-| **(d)** | **Staleness dependency set (title, confirmed format, transformation map — all three) and all three treated as soft**, not hard (§4). Full divergence from Phase 2/3's default-hard posture, extending Phase 4's precedent from one dependency to three. | **PROPOSED — needs Arman's explicit confirmation, most debatable on the format-change row** |
-| 1 | Depth persisted as a per-subtopic 3-tier enum (`shallow`/`medium`/`deep`), not a raw word-count estimate and not left emergent to Step 8. §2.3. | Proposed |
-| 2 | No `dimension_tag` column linking subtopics back to specific transformation-map dimensions — considered and rejected as over-engineering with no clear downstream consumer. §1.3. | Proposed |
-| 3 | `delivery_mode` and demand/competition signals do not modulate the target count range in v1 — kept out to avoid an under-justified multi-variable formula. §2.2. | Proposed |
-| 4 | Guardrail truncates over-max output (drop tail) but does not pad under-min output — persists `succeeded_below_target` instead of fabricating content. §3.4. | Proposed |
-| 5 | New `subtopic_generation_status` enum adds `succeeded_below_target` as a fourth, genuinely new outcome vs. precedent's 3-value set. §3.4. | Proposed |
-| 6 | AI-failure fallback for whole-list generation is an **empty list**, not a fabricated placeholder count — rejected the alternative of inventing a fixed stub count with no basis. §3.5. | Proposed |
-| 7 | Single-item regenerate failure leaves the target row untouched (no destructive fallback needed, since nothing was overwritten). §3.5. | Proposed |
-| 8 | Whole-list Regenerate requires the explicit-acknowledgment orchestration gate whenever any row is edited/manual/ai_regenerated — direct extension of Phase 4's precedent, larger blast radius than Phase 4's single-record case. §1.7. | Proposed |
-| 9 | Single-item Regenerate requires the same acknowledgment gate, scoped to just that row, when that row specifically is edited/manual. §1.7. | Proposed |
-| 10 | Whole-list regenerate soft cap: 5 per project, consistent with every prior phase. Single-item regenerate is **not** capped by the same counter (proposed uncapped, or a separate looser cap — not decided, low priority). §1.7. | Proposed — cap-or-not for single-item flagged as unresolved, low priority |
-| 11 | Reinterpretation of "workbook+tracker combos" against the finalized single-value `format_type` enum (§2.4). | **CONFIRMED by Arman 2026-08-23 — Reading A** (reassign "~15-ish" to workbook alone, drop "combo" wording for Step 7). Combo/bundled format type logged as a genuine future-phase open item in `docs/PROTO-product-spec.md` §6, not decided or built here — see §2.4 for full context. |
-| 12 | Auto-fire generation on reaching `transformation_map_confirmed` (no manual "Generate" click) — mirrors Steps 4/5/6. | Proposed |
-| 13 | `transformation_map_status` enum reused verbatim for `subtopic_lists.status` (both are `draft`/`confirmed`) rather than a duplicate new type — same reuse convention Phase 3 established. | Proposed |
-| 14 | Guardrail min-length for `description`: proposed 20 characters (shorter than Step 6's 30, since these are meant to be brief). Near-duplicate title threshold: proposed word-overlap ratio > 0.8. Both tunable defaults, approve-now/tune-later treatment. §3.4. | Proposed |
+| # | Decision |
+|---|---|
+| 1 | **Shape: three-table live-collection model** (`subtopic_generations` log + `subtopic_lists` header + `subtopics` child rows), not recommend/confirm, not a single editable record. The load-bearing call this entire document depends on. See §0. |
+| 2 | Target-count table per format (§2.2: tracker 5–8, workbook 10–15, ebook 8–12, quiz 4–6) — quiz range re-researched with real citations, held up under that research. |
+| 3 | Single-item regenerate-in-place is **in scope for v1** (§0.1, §1.7, §3.3) — a small marginal addition once the per-row shape exists, not a new shape of its own, though not strictly required (delete + manual re-add covers the same ground). |
+| 4 | Staleness dependency set (title, confirmed format, transformation map — all three) and all three treated as **soft**, not hard (§4). Full divergence from Phase 2/3's default-hard posture, extending Phase 4's precedent from one dependency to three. |
+| 5 | Depth persisted as a per-subtopic 3-tier enum (`shallow`/`medium`/`deep`), not a raw word-count estimate and not left emergent to Step 8. §2.3. |
+| 6 | No `dimension_tag` column linking subtopics back to specific transformation-map dimensions — considered and rejected as over-engineering with no clear downstream consumer. §1.3. |
+| 7 | `delivery_mode` and demand/competition signals do not modulate the target count range in v1 — kept out to avoid an under-justified multi-variable formula. §2.2. |
+| 8 | Guardrail truncates over-max output (drop tail) but does not pad under-min output — persists `succeeded_below_target` instead of fabricating content. §3.4. |
+| 9 | New `subtopic_generation_status` enum adds `succeeded_below_target` as a fourth, genuinely new outcome vs. precedent's 3-value set. §3.4. |
+| 10 | AI-failure fallback for whole-list generation is an **empty list**, not a fabricated placeholder count — rejected the alternative of inventing a fixed stub count with no basis. §3.5. |
+| 11 | Single-item regenerate failure leaves the target row untouched (no destructive fallback needed, since nothing was overwritten). §3.5. |
+| 12 | Whole-list Regenerate requires the explicit-acknowledgment orchestration gate whenever any row is edited/manual/ai_regenerated — direct extension of Phase 4's precedent, larger blast radius than Phase 4's single-record case. §1.7. |
+| 13 | Single-item Regenerate requires the same acknowledgment gate, scoped to just that row, when that row specifically is edited/manual. §1.7. |
+| 14 | Whole-list regenerate soft cap: 5 per project, consistent with every prior phase. Single-item regenerate is **not** capped by the same counter — confirmed uncapped for v1 (the simpler default; revisit later if usage patterns warrant a separate cap). §1.7. |
+| 15 | Reinterpretation of "workbook+tracker combos" against the finalized single-value `format_type` enum (§2.4) — **Reading A** (reassign "~15-ish" to workbook alone, drop "combo" wording for Step 7). Combo/bundled format type logged as a genuine future-phase open item in `docs/PROTO-product-spec.md` §6, not decided or built here. |
+| 16 | Auto-fire generation on reaching `transformation_map_confirmed` (no manual "Generate" click) — mirrors Steps 4/5/6. |
+| 17 | `transformation_map_status` enum reused verbatim for `subtopic_lists.status` (both are `draft`/`confirmed`) rather than a duplicate new type — same reuse convention Phase 3 established. |
+| 18 | Guardrail min-length for `description`: 20 characters (shorter than Step 6's 30, since these are meant to be brief). Near-duplicate title threshold: word-overlap ratio > 0.8. Both tunable defaults, approve-now/tune-later treatment. §3.4. |
 
-**Status: Step 7 requirements are a first-draft proposal, not yet locked.** Every item above needs Arman's explicit pass before DEV work starts — unlike Phases 2–4, this document has not yet been through a confirmation round.
+**Status: Step 7 requirements are locked. Not yet built** — DEV work starts now.
 
 ---
 
