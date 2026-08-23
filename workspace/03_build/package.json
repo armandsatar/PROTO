@@ -16,7 +16,8 @@
     "smoke:leadmagnet": "tsx --env-file=.env scripts/smoke-test-leadmagnet.ts",
     "smoke:transformationmap-ai": "tsx --env-file=.env scripts/smoke-test-transformationmap-ai.ts",
     "smoke:transformationmap": "tsx --env-file=.env scripts/smoke-test-transformationmap.ts",
-    "smoke:subtopics-ai": "tsx --env-file=.env scripts/smoke-test-subtopics-ai.ts"
+    "smoke:subtopics-ai": "tsx --env-file=.env scripts/smoke-test-subtopics-ai.ts",
+    "smoke:subtopics": "tsx --env-file=.env scripts/smoke-test-subtopics.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
