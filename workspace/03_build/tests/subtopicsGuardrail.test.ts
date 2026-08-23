@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyFullListGuardrail, applySingleItemGuardrail } from '../lib/subtopics/guardrail';
+import { applyFullListGuardrail, applySingleItemGuardrail, validateSubtopicFields } from '../lib/subtopics/guardrail';
 import { MIN_DESCRIPTION_LENGTH } from '../lib/subtopics/rules';
 
 const okDescription = 'x'.repeat(MIN_DESCRIPTION_LENGTH);
@@ -101,5 +101,37 @@ describe('applySingleItemGuardrail', () => {
     expect(() =>
       applySingleItemGuardrail({ subtopic: item('Budget Basics for Beginners') }, ['Budget Basics', 'Meal Planning']),
     ).toThrow(/near-duplicate/);
+  });
+});
+
+describe('validateSubtopicFields (manual-add/edit path, decision 18\'s bar applied to hand-entered content too)', () => {
+  it('passes through valid fields, trimmed', () => {
+    expect(validateSubtopicFields({ title: '  Sleep Hygiene  ', description: `  ${okDescription}  `, depth: 'deep' })).toEqual({
+      title: 'Sleep Hygiene',
+      description: okDescription,
+      depth: 'deep',
+    });
+  });
+
+  it('throws on an empty title', () => {
+    expect(() => validateSubtopicFields({ title: '   ', description: okDescription, depth: 'medium' })).toThrow(/title cannot be empty/);
+  });
+
+  it('throws on an empty description', () => {
+    expect(() => validateSubtopicFields({ title: 'Title', description: '  ', depth: 'medium' })).toThrow(
+      /description cannot be empty/,
+    );
+  });
+
+  it('throws on a description below the minimum length', () => {
+    expect(() => validateSubtopicFields({ title: 'Title', description: 'too short', depth: 'medium' })).toThrow(
+      /shorter than the minimum length/,
+    );
+  });
+
+  it('throws on an invalid depth', () => {
+    expect(() => validateSubtopicFields({ title: 'Title', description: okDescription, depth: 'super-deep' })).toThrow(
+      /Invalid depth/,
+    );
   });
 });

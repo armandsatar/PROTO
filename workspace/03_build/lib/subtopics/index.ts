@@ -26,7 +26,7 @@ export {
   detectStalenessReason,
 } from './rules';
 export type { StalenessReason } from './rules';
-export { applyFullListGuardrail, applySingleItemGuardrail } from './guardrail';
+export { applyFullListGuardrail, applySingleItemGuardrail, validateSubtopicFields } from './guardrail';
 export { fullListFallback } from './fallback';
 export { generateSubtopicList } from './generateSubtopicList';
 export type { GenerateSubtopicListInput } from './generateSubtopicList';
@@ -37,5 +37,10 @@ export {
   confirmSubtopicList,
   unlockSubtopicList,
   getCurrentSubtopicList,
+  reorderSubtopics,
+  deleteSubtopic,
+  addManualSubtopic,
+  editSubtopic,
+  regenerateOneSubtopic,
 } from './runSubtopicGeneration';
 export type { SubtopicListRow, SubtopicRow, GenerateOrRegenerateResult, GetCurrentSubtopicListResult } from './runSubtopicGeneration';

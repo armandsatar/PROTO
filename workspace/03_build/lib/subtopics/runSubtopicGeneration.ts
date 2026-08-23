@@ -1,9 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { generateSubtopicList, type GenerateSubtopicListInput } from './generateSubtopicList';
+import { regenerateSingleSubtopic } from './regenerateSingleSubtopic';
 import { fullListFallback } from './fallback';
+import { validateSubtopicFields } from './guardrail';
 import { GROQ_MODEL } from '../ai/groq';
 import { hasReachedRegenerateCap, targetCountForFormat, detectStalenessReason, type StalenessReason } from './rules';
-import type { FormatType, Subtopic, SubtopicGenerationStatus } from './types';
+import type { FormatType, Subtopic, SubtopicDepth, SubtopicGenerationStatus } from './types';
 
 export interface SubtopicListRow {
   id: string;
@@ -133,6 +135,39 @@ function buildGenerateInput(ctx: LoadedGenerationContext): GenerateSubtopicListI
   };
 }
 
+/**
+ * §1.4: generation_number increments across ALL generation attempts for a list —
+ * both full_list and single_item — a single unambiguous sequence, not two separate
+ * counters (see migration 0005's comments for the reasoning behind this reading).
+ */
+async function nextGenerationNumber(supabase: SupabaseClient, projectId: string): Promise<number> {
+  const { data: lastGen } = await supabase
+    .from('subtopic_generations')
+    .select('generation_number')
+    .eq('project_id', projectId)
+    .order('generation_number', { ascending: false })
+    .limit(1);
+  return (lastGen?.[0]?.generation_number ?? 0) + 1;
+}
+
+/** Shared draft-status guard for every collection-management action in §1.7's table. */
+async function requireDraftList(supabase: SupabaseClient, projectId: string): Promise<SubtopicListRow> {
+  const { data: list, error } = await supabase.from('subtopic_lists').select('*').eq('project_id', projectId).single();
+  if (error || !list) throw new Error(`No subtopic list found for project: ${error?.message}`);
+  if (list.status !== 'draft') throw new Error('Subtopic list is confirmed — unlock it first');
+  return list as SubtopicListRow;
+}
+
+async function loadSubtopics(supabase: SupabaseClient, subtopicListId: string): Promise<SubtopicRow[]> {
+  const { data, error } = await supabase
+    .from('subtopics')
+    .select('*')
+    .eq('subtopic_list_id', subtopicListId)
+    .order('display_order', { ascending: true });
+  if (error) throw new Error(`Failed to load subtopics: ${error.message}`);
+  return (data ?? []) as SubtopicRow[];
+}
+
 interface GenerateOrRegenerateParams {
   supabase: SupabaseClient;
   projectId: string;
@@ -201,14 +236,7 @@ export async function generateOrRegenerateSubtopicList(params: GenerateOrRegener
   }
 
   const listId = isRegenerate ? existingList.id : undefined;
-
-  const { data: lastGen } = await supabase
-    .from('subtopic_generations')
-    .select('generation_number')
-    .eq('project_id', projectId)
-    .order('generation_number', { ascending: false })
-    .limit(1);
-  const generationNumber = (lastGen?.[0]?.generation_number ?? 0) + 1;
+  const generationNumber = await nextGenerationNumber(supabase, projectId);
 
   const inputsSnapshot = {
     title: generateInput.title,
@@ -468,4 +496,287 @@ export async function getCurrentSubtopicList(params: GetCurrentParams): Promise<
   if (subtopicsErr) throw new Error(`Failed to load subtopics: ${subtopicsErr.message}`);
 
   return { list: currentList, subtopics: (subtopicRows ?? []) as SubtopicRow[], isStale: staleReason !== null, staleReason };
+}
+
+interface ReorderParams {
+  supabase: SupabaseClient;
+  projectId: string;
+  /** Full new order, list-id-scoped. Every id currently in the list must appear exactly once. */
+  orderedSubtopicIds: string[];
+}
+
+/**
+ * §1.7's Reorder action — draft status only, no `is_edited` change (reordering is
+ * not content editing). Two update passes to negative temp values then final 1..N
+ * values: `subtopics` has a `unique (subtopic_list_id, display_order)` constraint
+ * that isn't deferrable, so an arbitrary reorder (e.g. swapping items 1 and 2) would
+ * collide mid-update in a single pass — negative temp values can never collide with
+ * any remaining positive value, so the second pass is always collision-free.
+ */
+export async function reorderSubtopics(params: ReorderParams): Promise<SubtopicRow[]> {
+  const { supabase, projectId, orderedSubtopicIds } = params;
+  const list = await requireDraftList(supabase, projectId);
+
+  for (let i = 0; i < orderedSubtopicIds.length; i++) {
+    const { error } = await supabase
+      .from('subtopics')
+      .update({ display_order: -(i + 1) })
+      .eq('id', orderedSubtopicIds[i])
+      .eq('subtopic_list_id', list.id);
+    if (error) throw new Error(`Failed to reorder subtopics (temp pass): ${error.message}`);
+  }
+  for (let i = 0; i < orderedSubtopicIds.length; i++) {
+    const { error } = await supabase
+      .from('subtopics')
+      .update({ display_order: i + 1, updated_at: new Date().toISOString() })
+      .eq('id', orderedSubtopicIds[i])
+      .eq('subtopic_list_id', list.id);
+    if (error) throw new Error(`Failed to reorder subtopics (final pass): ${error.message}`);
+  }
+
+  return loadSubtopics(supabase, list.id);
+}
+
+interface DeleteParams {
+  supabase: SupabaseClient;
+  projectId: string;
+  subtopicId: string;
+}
+
+/**
+ * §1.7's Delete action — draft status only. Remaining rows are re-sequenced to close
+ * the gap (the spec leaves render-time resequencing as an equally valid alternative;
+ * closing it here keeps `display_order` dense in the DB). Resequencing in ascending
+ * display_order order is collision-safe without a temp-value pass — compaction only
+ * ever moves a row to a value <= its own old value, and by the time each row is
+ * reassigned, no remaining row still holds that target value.
+ */
+export async function deleteSubtopic(params: DeleteParams): Promise<SubtopicRow[]> {
+  const { supabase, projectId, subtopicId } = params;
+  const list = await requireDraftList(supabase, projectId);
+
+  const { error: deleteErr, count } = await supabase
+    .from('subtopics')
+    .delete({ count: 'exact' })
+    .eq('id', subtopicId)
+    .eq('subtopic_list_id', list.id);
+  if (deleteErr) throw new Error(`Failed to delete subtopic: ${deleteErr.message}`);
+  if (!count) throw new Error('Subtopic not found in this list');
+
+  const remaining = await loadSubtopics(supabase, list.id);
+  for (let i = 0; i < remaining.length; i++) {
+    if (remaining[i].display_order === i + 1) continue;
+    const { error } = await supabase.from('subtopics').update({ display_order: i + 1 }).eq('id', remaining[i].id);
+    if (error) throw new Error(`Failed to resequence subtopics after delete: ${error.message}`);
+  }
+
+  return loadSubtopics(supabase, list.id);
+}
+
+interface AddManualParams {
+  supabase: SupabaseClient;
+  projectId: string;
+  workspaceId: string;
+  title: string;
+  description: string;
+  depth: SubtopicDepth;
+}
+
+/** §1.7's Manual add action — draft status only, appended at the end, no AI call/log row involved. */
+export async function addManualSubtopic(params: AddManualParams): Promise<SubtopicRow> {
+  const { supabase, projectId, workspaceId, title, description, depth } = params;
+  const list = await requireDraftList(supabase, projectId);
+  const validated = validateSubtopicFields({ title, description, depth });
+
+  const { data: lastRow } = await supabase
+    .from('subtopics')
+    .select('display_order')
+    .eq('subtopic_list_id', list.id)
+    .order('display_order', { ascending: false })
+    .limit(1);
+  const nextDisplayOrder = (lastRow?.[0]?.display_order ?? 0) + 1;
+
+  const { data: inserted, error: insertErr } = await supabase
+    .from('subtopics')
+    .insert({
+      workspace_id: workspaceId,
+      project_id: projectId,
+      subtopic_list_id: list.id,
+      title: validated.title,
+      description: validated.description,
+      depth: validated.depth,
+      display_order: nextDisplayOrder,
+      source: 'manual',
+      source_generation_id: null,
+      is_edited: false,
+    })
+    .select()
+    .single();
+  if (insertErr || !inserted) throw new Error(`Failed to add manual subtopic: ${insertErr?.message}`);
+
+  return inserted as SubtopicRow;
+}
+
+interface EditSubtopicParams {
+  supabase: SupabaseClient;
+  projectId: string;
+  subtopicId: string;
+  userId: string;
+  updates: Partial<{ title: string; description: string; depth: SubtopicDepth }>;
+}
+
+/**
+ * §1.7's Edit action — draft status only. Sets `is_edited=true` unless the row is
+ * `manual` (§1.3: a manual row has no "original AI content" to have diverged from,
+ * so it stays false permanently by definition, not tracked as an edit).
+ */
+export async function editSubtopic(params: EditSubtopicParams): Promise<SubtopicRow> {
+  const { supabase, projectId, subtopicId, userId, updates } = params;
+  const list = await requireDraftList(supabase, projectId);
+
+  const { data: existing, error: existingErr } = await supabase
+    .from('subtopics')
+    .select('*')
+    .eq('id', subtopicId)
+    .eq('subtopic_list_id', list.id)
+    .single();
+  if (existingErr || !existing) throw new Error(`Subtopic not found in this list: ${existingErr?.message}`);
+
+  const validated = validateSubtopicFields({
+    title: updates.title ?? existing.title,
+    description: updates.description ?? existing.description,
+    depth: updates.depth ?? existing.depth,
+  });
+
+  const { data: updated, error: updateErr } = await supabase
+    .from('subtopics')
+    .update({
+      title: validated.title,
+      description: validated.description,
+      depth: validated.depth,
+      is_edited: existing.source !== 'manual',
+      last_edited_at: new Date().toISOString(),
+      last_edited_by: userId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', subtopicId)
+    .select()
+    .single();
+  if (updateErr || !updated) throw new Error(`Failed to edit subtopic: ${updateErr?.message}`);
+
+  return updated as SubtopicRow;
+}
+
+interface RegenerateOneParams {
+  supabase: SupabaseClient;
+  projectId: string;
+  workspaceId: string;
+  subtopicId: string;
+  /** Required (must be true) when the target row is edited or manual — decision 13's safety rail, scoped to just this row. */
+  acknowledgeOverwrite?: boolean;
+  hint?: string;
+}
+
+/**
+ * §1.7's single-item Regenerate action — draft status only, does not require
+ * unlocking the whole list and does not touch `subtopic_lists.regenerate_count`
+ * (that cap is whole-list only, decision 14). The acknowledgment gate here is
+ * deliberately narrower than the whole-list gate: `ai_regenerated` alone does NOT
+ * require acknowledgment (re-rolling AI output that was never hand-edited since
+ * discards nothing a human authored), only `is_edited` or `source='manual'` does.
+ */
+export async function regenerateOneSubtopic(params: RegenerateOneParams): Promise<SubtopicRow> {
+  const { supabase, projectId, workspaceId, subtopicId, acknowledgeOverwrite, hint } = params;
+  const list = await requireDraftList(supabase, projectId);
+
+  const { data: target, error: targetErr } = await supabase
+    .from('subtopics')
+    .select('*')
+    .eq('id', subtopicId)
+    .eq('subtopic_list_id', list.id)
+    .single();
+  if (targetErr || !target) throw new Error(`Subtopic not found in this list: ${targetErr?.message}`);
+
+  if ((target.is_edited || target.source === 'manual') && acknowledgeOverwrite !== true) {
+    throw new Error('This subtopic has unsaved manual edits — pass acknowledgeOverwrite=true to confirm overwriting it (decision 13)');
+  }
+
+  const siblings = await loadSubtopics(supabase, list.id);
+  const siblingTitles = siblings.filter((s) => s.id !== subtopicId).map((s) => s.title);
+
+  const ctx = await loadGenerationContext(supabase, projectId);
+  const generationNumber = await nextGenerationNumber(supabase, projectId);
+  const inputsSnapshot = {
+    ...buildGenerateInput(ctx),
+    sibling_subtopic_titles: siblingTitles,
+    hint: hint ?? null,
+  };
+
+  let regenerated: Subtopic;
+  try {
+    regenerated = await regenerateSingleSubtopic({ ...buildGenerateInput(ctx), siblingTitles, hint });
+  } catch (err) {
+    // Decision 11: on total failure, leave the target row untouched — no fallback
+    // scaffolding needed since there's always pre-existing content to fall back to
+    // by simply not changing it. Still logged for audit (§1.1), then re-thrown so
+    // the caller's toast/error surfaces exactly like every other AI-call failure.
+    await supabase.from('subtopic_generations').insert({
+      workspace_id: workspaceId,
+      project_id: projectId,
+      subtopic_list_id: list.id,
+      generation_number: generationNumber,
+      generation_type: 'single_item',
+      target_subtopic_id: subtopicId,
+      title_candidate_id: ctx.candidate.id,
+      format_recommendation_id: ctx.formatRec.id,
+      transformation_map_snapshot_at: ctx.map.updated_at,
+      inputs_snapshot: inputsSnapshot,
+      output_snapshot: null,
+      model: GROQ_MODEL,
+      generation_status: 'failed_fallback',
+      error_detail: err instanceof Error ? err.message : 'Single-item regeneration failed',
+      completed_at: new Date().toISOString(),
+    });
+    throw new Error(`Failed to regenerate subtopic: ${err instanceof Error ? err.message : 'unknown error'}`);
+  }
+
+  const { data: newGeneration, error: genInsertErr } = await supabase
+    .from('subtopic_generations')
+    .insert({
+      workspace_id: workspaceId,
+      project_id: projectId,
+      subtopic_list_id: list.id,
+      generation_number: generationNumber,
+      generation_type: 'single_item',
+      target_subtopic_id: subtopicId,
+      title_candidate_id: ctx.candidate.id,
+      format_recommendation_id: ctx.formatRec.id,
+      transformation_map_snapshot_at: ctx.map.updated_at,
+      inputs_snapshot: inputsSnapshot,
+      output_snapshot: regenerated,
+      model: GROQ_MODEL,
+      generation_status: 'succeeded',
+      completed_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+  if (genInsertErr || !newGeneration) throw new Error(`Failed to persist single-item generation row: ${genInsertErr?.message}`);
+
+  const { data: updated, error: updateErr } = await supabase
+    .from('subtopics')
+    .update({
+      title: regenerated.title,
+      description: regenerated.description,
+      depth: regenerated.depth,
+      source: 'ai_regenerated',
+      source_generation_id: newGeneration.id,
+      is_edited: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', subtopicId)
+    .select()
+    .single();
+  if (updateErr || !updated) throw new Error(`Failed to overwrite subtopic on regenerate: ${updateErr?.message}`);
+
+  return updated as SubtopicRow;
 }

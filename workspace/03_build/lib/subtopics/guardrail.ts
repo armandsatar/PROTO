@@ -15,6 +15,35 @@ function isValidDepth(v: unknown): v is SubtopicDepth {
   return typeof v === 'string' && (VALID_DEPTHS as readonly string[]).includes(v);
 }
 
+/**
+ * Same field-quality bar as the AI guardrail (rule 1), applied to manual-add/edit
+ * paths (§1.7) — a hand-entered subtopic becomes a peer row in the same list, so it
+ * gets the same minimum quality bar rather than a looser one. Deliberately separate
+ * from validateSubtopicItem below: that function validates an `unknown`-typed AI
+ * response by array index; this one validates already-typed strings from application
+ * code with no index to report.
+ */
+export function validateSubtopicFields(fields: { title: string; description: string; depth: string }): Subtopic {
+  if (!fields.title.trim()) {
+    throw new Error('Subtopic title cannot be empty');
+  }
+  const title = fields.title.trim();
+
+  if (!fields.description.trim()) {
+    throw new Error('Subtopic description cannot be empty');
+  }
+  const description = fields.description.trim();
+  if (!meetsMinLength(description)) {
+    throw new Error(`Subtopic description is shorter than the minimum length: "${description}"`);
+  }
+
+  if (!isValidDepth(fields.depth)) {
+    throw new Error(`Invalid depth: ${JSON.stringify(fields.depth)}`);
+  }
+
+  return { title, description, depth: fields.depth };
+}
+
 function validateSubtopicItem(raw: unknown, index: number): Subtopic {
   if (!raw || typeof raw !== 'object') {
     throw new Error(`Subtopic at index ${index} is not an object`);
