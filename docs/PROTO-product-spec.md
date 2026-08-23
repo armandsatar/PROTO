@@ -124,6 +124,7 @@ Appears **at the very end**, after content and design are finalized (so real dep
 - How the natural-language router is built (intent classification logic between Claude vs. Nano Banana tasks)
 - Full guided-setup flow UX for non-technical users creating their first API key
 - Mapping this spec onto the SME/DME/GD/DEV/PD subagent pipeline for actual build handoff
+- **Whether a "combo/bundled" format type (e.g. workbook + tracker shipped as one product) should be added as a fifth Step 4 format option.** This was one of Arman's original example format types from the pre-build spec discussion, named alongside tracker/workbook/ebook — it did not carry forward into Step 4's four locked formats (tracker/workbook/ebook/quiz), likely an oversight rather than a deliberate cut. Surfaced 2026-08-23 while scoping Step 7 (Subtopic Generation), whose spec text ("~15-ish for workbook+tracker combos") referenced this format directly. Step 7 is proceeding without it — the "~15-ish" subtopic-count guidance was reassigned to workbook alone (see `workspace/01_spec/phase5-requirements.md` §2.4) — so this is not blocking current work. If added later, a combo format would need its own Step 4 build work and its own subtopic-count research; the workbook range should not be assumed to transfer to it, since a bundled product's structure (workbook modules + tracker categories, likely as two distinct sub-collections) is a different shape question than either format alone.
 
 ---
 
