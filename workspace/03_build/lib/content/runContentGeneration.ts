@@ -108,12 +108,18 @@ async function loadGenerationContext(supabase: SupabaseClient, projectId: string
 
   const { data: subtopicList, error: listErr } = await supabase
     .from('subtopic_lists')
-    .select('confirmed_at')
+    .select('confirmed_at, updated_at')
     .eq('project_id', projectId)
     .single();
-  if (listErr || !subtopicList || !subtopicList.confirmed_at) {
-    throw new Error(`Confirmed subtopics list not found for project: ${listErr?.message ?? 'not confirmed'}`);
+  if (listErr || !subtopicList) {
+    throw new Error(`Subtopics list not found for project: ${listErr?.message ?? 'not found'}`);
   }
+  // Falls back to updated_at when the list is currently unconfirmed — this loader is
+  // also used by backfillNewSubtopicContent (increment 5), which by definition only
+  // fires while Step 7's list is unlocked post-confirm (confirmed_at is null then,
+  // per unlockSubtopicList). Decision 25 explicitly leaves the Step 7/Step 8 unlock
+  // interaction unresolved rather than blocking on it here.
+  const subtopicListSnapshotAt = subtopicList.confirmed_at ?? subtopicList.updated_at;
 
   const { data: subtopics, error: subtopicsErr } = await supabase
     .from('subtopics')
@@ -140,7 +146,7 @@ async function loadGenerationContext(supabase: SupabaseClient, projectId: string
       dimPainPointBefore: map.dim_pain_point_before,
       dimPainPointAfter: map.dim_pain_point_after,
     },
-    subtopicListConfirmedAt: subtopicList.confirmed_at,
+    subtopicListConfirmedAt: subtopicListSnapshotAt,
     subtopics: subtopics as SubtopicRowLite[],
   };
 }
@@ -659,4 +665,164 @@ export async function getCurrentContentBuild(params: GetCurrentParams): Promise<
     .filter((c): c is SubtopicContentRow => c !== undefined);
 
   return { build: currentBuild, contents: orderedContents, isStale, documentStaleReason, staleSubtopicContentIds };
+}
+
+/** Shared draft-status guard for every row-level action in §1.8's table. */
+async function requireDraftBuild(supabase: SupabaseClient, projectId: string): Promise<ContentBuildRow> {
+  const { data: build, error } = await supabase.from('content_builds').select('*').eq('project_id', projectId).single();
+  if (error || !build) throw new Error(`No content build found for project: ${error?.message}`);
+  if (build.status !== 'draft') throw new Error('Content build is confirmed — unlock it first');
+  return build as ContentBuildRow;
+}
+
+interface EditSubtopicContentParams {
+  supabase: SupabaseClient;
+  projectId: string;
+  subtopicContentId: string;
+  userId: string;
+  body: string;
+}
+
+/**
+ * §1.8's Manual edit action — draft status only. Interpretive resolution of a gap in
+ * the requirements doc: `content_status` transitions `failed_empty` -> `manual` only
+ * when the row never had real AI content to begin with (the user is filling in a gap
+ * from scratch); an already-`generated` row stays `generated` when hand-tweaked —
+ * `is_edited=true` alone carries the "diverged from AI output" signal in that case,
+ * same semantics as `subtopics.is_edited` in Step 7.
+ */
+export async function editSubtopicContent(params: EditSubtopicContentParams): Promise<SubtopicContentRow> {
+  const { supabase, projectId, subtopicContentId, userId, body } = params;
+  const build = await requireDraftBuild(supabase, projectId);
+
+  const { data: existing, error: existingErr } = await supabase
+    .from('subtopic_contents')
+    .select('*')
+    .eq('id', subtopicContentId)
+    .eq('content_build_id', build.id)
+    .single();
+  if (existingErr || !existing) throw new Error(`Subtopic content not found in this build: ${existingErr?.message}`);
+
+  const trimmed = body.trim();
+  if (!trimmed) throw new Error('Content body cannot be empty');
+  const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+
+  const newContentStatus: ContentStatus = existing.content_status === 'failed_empty' ? 'manual' : existing.content_status;
+
+  const { data: updated, error: updateErr } = await supabase
+    .from('subtopic_contents')
+    .update({
+      body: trimmed,
+      word_count: wordCount,
+      content_status: newContentStatus,
+      is_edited: true,
+      compliance_reviewed: false,
+      last_edited_at: new Date().toISOString(),
+      last_edited_by: userId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', subtopicContentId)
+    .select()
+    .single();
+  if (updateErr || !updated) throw new Error(`Failed to edit subtopic content: ${updateErr?.message}`);
+
+  return updated as SubtopicContentRow;
+}
+
+interface RegenerateOneSubtopicContentParams {
+  supabase: SupabaseClient;
+  projectId: string;
+  workspaceId: string;
+  subtopicContentId: string;
+  /** Required (must be true) when the target row is edited — §1.8's single-row acknowledgment gate. */
+  acknowledgeOverwrite?: boolean;
+}
+
+/**
+ * §1.8's single-subtopic Regenerate action — draft status only, does not require
+ * unlocking the whole build. Per the requirements doc's literal wording this action's
+ * gate condition is `is_edited=true` alone (narrower than generateContent's whole-
+ * document gate, which also checks `content_status='manual'` — though in practice a
+ * `manual` row always has `is_edited=true` too, since editSubtopicContent above is the
+ * only path that ever produces `manual`, so the two conditions never actually diverge).
+ * No duplicate-avoidance guardrail — regenerated prose isn't competing for a shared
+ * namespace the way Step 7's list-item titles were (phase6 §6.3).
+ */
+export async function regenerateOneSubtopicContent(params: RegenerateOneSubtopicContentParams): Promise<SubtopicContentRow> {
+  const { supabase, projectId, workspaceId, subtopicContentId, acknowledgeOverwrite } = params;
+  const build = await requireDraftBuild(supabase, projectId);
+
+  const { data: existing, error: existingErr } = await supabase
+    .from('subtopic_contents')
+    .select('*')
+    .eq('id', subtopicContentId)
+    .eq('content_build_id', build.id)
+    .single();
+  if (existingErr || !existing) throw new Error(`Subtopic content not found in this build: ${existingErr?.message}`);
+
+  if (existing.is_edited && acknowledgeOverwrite !== true) {
+    throw new Error('This content has unsaved manual edits — pass acknowledgeOverwrite=true to confirm overwriting it (phase6 §1.8)');
+  }
+
+  const ctx = await loadGenerationContext(supabase, projectId);
+  const targetSubtopic = ctx.subtopics.find((s) => s.id === existing.subtopic_id);
+  if (!targetSubtopic) throw new Error('Subtopic not found for this content row');
+  const siblingTitles = ctx.subtopics.filter((s) => s.id !== targetSubtopic.id).map((s) => s.title);
+
+  return generateAndPersistOneSubtopicContent({
+    supabase,
+    workspaceId,
+    projectId,
+    buildId: build.id,
+    subtopic: targetSubtopic,
+    siblingTitles,
+    ctx,
+    triggerScope: 'regenerate_one',
+    existingContentId: existing.id,
+  });
+}
+
+interface BackfillNewSubtopicContentParams {
+  supabase: SupabaseClient;
+  projectId: string;
+  workspaceId: string;
+  subtopicId: string;
+}
+
+/**
+ * §1.8's "New subtopic added" edge case — only reachable when Step 7's subtopics list
+ * has been unlocked post-confirm (decision 25's acknowledged, unresolved cross-phase
+ * interaction) and a new row added there. Unlike generateContent's whole-document
+ * entry point, this genuinely does auto-fire per the requirements doc — it's a single
+ * subtopic's worth of calls (1-2), not the full-document blast radius decision 18 was
+ * about. Refuses to run if content already exists for the subtopic (use
+ * regenerateOneSubtopicContent instead).
+ */
+export async function backfillNewSubtopicContent(params: BackfillNewSubtopicContentParams): Promise<SubtopicContentRow> {
+  const { supabase, projectId, workspaceId, subtopicId } = params;
+  const build = await requireDraftBuild(supabase, projectId);
+
+  const { data: existingContent, error: existingContentErr } = await supabase
+    .from('subtopic_contents')
+    .select('id')
+    .eq('subtopic_id', subtopicId)
+    .maybeSingle();
+  if (existingContentErr) throw new Error(`Failed to check for existing content: ${existingContentErr.message}`);
+  if (existingContent) throw new Error('Content already exists for this subtopic — use regenerateOneSubtopicContent instead');
+
+  const ctx = await loadGenerationContext(supabase, projectId);
+  const targetSubtopic = ctx.subtopics.find((s) => s.id === subtopicId);
+  if (!targetSubtopic) throw new Error('Subtopic not found for this project');
+  const siblingTitles = ctx.subtopics.filter((s) => s.id !== subtopicId).map((s) => s.title);
+
+  return generateAndPersistOneSubtopicContent({
+    supabase,
+    workspaceId,
+    projectId,
+    buildId: build.id,
+    subtopic: targetSubtopic,
+    siblingTitles,
+    ctx,
+    triggerScope: 'new_subtopic_backfill',
+  });
 }

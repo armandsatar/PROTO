@@ -45,5 +45,13 @@ export { generateWriterPass } from './generateWriterPass';
 export type { GenerateWriterPassInput } from './generateWriterPass';
 export { generateReviewPass } from './generateReviewPass';
 export type { GenerateReviewPassInput } from './generateReviewPass';
-export { generateContent, confirmContentBuild, unlockContentBuild, getCurrentContentBuild } from './runContentGeneration';
+export {
+  generateContent,
+  confirmContentBuild,
+  unlockContentBuild,
+  getCurrentContentBuild,
+  editSubtopicContent,
+  regenerateOneSubtopicContent,
+  backfillNewSubtopicContent,
+} from './runContentGeneration';
 export type { ContentBuildRow, SubtopicContentRow, GenerateContentResult, GetCurrentContentBuildResult } from './runContentGeneration';
