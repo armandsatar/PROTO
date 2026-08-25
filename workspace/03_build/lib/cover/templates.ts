@@ -18,9 +18,12 @@ export const COVER_LOOKS: readonly CoverLook[] = [
       accent: '#1B2A4A',
       text: '#1B2A4A',
     },
+    // Real, renderable font names — must match what renderCoverImage.tsx actually
+    // embeds (lib/cover/fonts/, Inter + Playfair Display, both OFL-licensed), not a
+    // generic CSS fallback stack that doesn't correspond to a real bundled font.
     fontPairing: {
-      heading: 'Georgia, serif',
-      body: 'Helvetica, Arial, sans-serif',
+      heading: 'Playfair Display',
+      body: 'Inter',
     },
   },
   {
@@ -32,8 +35,8 @@ export const COVER_LOOKS: readonly CoverLook[] = [
       text: '#FFFFFF',
     },
     fontPairing: {
-      heading: 'Helvetica, Arial, sans-serif',
-      body: 'Helvetica, Arial, sans-serif',
+      heading: 'Inter',
+      body: 'Inter',
     },
   },
 ];
