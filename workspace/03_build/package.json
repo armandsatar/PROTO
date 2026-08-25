@@ -20,7 +20,8 @@
     "smoke:subtopics": "tsx --env-file=.env scripts/smoke-test-subtopics.ts",
     "smoke:content-ai": "tsx --env-file=.env scripts/smoke-test-content-ai.ts",
     "smoke:content": "tsx --env-file=.env scripts/smoke-test-content.ts",
-    "verify:gemini": "tsx --env-file=.env scripts/verify-gemini-connector.ts"
+    "verify:gemini": "tsx --env-file=.env scripts/verify-gemini-connector.ts",
+    "test:storage-rls": "tsx --env-file=.env supabase/tests/cover_storage_rules.ts"
   },
   "dependencies": {
     "@google/genai": "^2.18.0",
