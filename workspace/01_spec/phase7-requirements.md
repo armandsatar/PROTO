@@ -6,7 +6,7 @@
 
 **Live connector verification: DONE (2026-08-25), against a real key and a real billable call — §3.2 has the full findings.** Unlike every prior research-only claim in this document, the model name, the request/response shape, and the real per-call cost are now confirmed live, not just researched. Two things the live call corrected vs. what was researched/documented: (1) the response format only accepts `image/jpeg`, not `image/png` as shown in Google's own documented examples; (2) the response **does** include a real `usage` field with token counts (earlier research said no cost metadata was exposed — wrong), and the real measured cost for one 1K image (**$0.0891**) ran **~33% higher** than the $0.067 flat per-image rate this document had been citing — see §4.1 for why.
 
-**Status: Decisions Locked (2026-08-25).** All 18 items in §9 confirmed by Arman, including a real live connector verification against a funded Gemini API key (§3.2) — the first phase whose most consequential technical claims (model, response shape, real per-call cost) are live-confirmed rather than research-only estimates. DEV work starts now.
+**Status: Decisions Locked (2026-08-25).** All 19 items in §9 confirmed by Arman, including a real live connector verification against a funded Gemini API key (§3.2) — the first phase whose most consequential technical claims (model, response shape, real per-call cost) are live-confirmed rather than research-only estimates. DEV work starts now.
 
 ---
 
@@ -307,6 +307,20 @@ Distinct fields, not redundant: `status` (`draft`/`confirmed`) governs whether t
 
 Both `cover_designs` and `cover_generations` carry `workspace_id`, gated by `is_workspace_member()`, following the exact convention of every prior migration — no exception for this phase's Postgres tables. **Supabase Storage is the one place a genuinely new authorization mechanism is required** (§5.3), because storage policies are evaluated against object paths/metadata, not Postgres rows — this is a real, new piece of security-critical infrastructure that needs its own explicit review pass per the product spec's Architecture Principles ("auth flow and RLS policies get checked before anything ships, every time"), extended here to cover storage policies too.
 
+### 7.10 Staleness — three dependencies, soft (confirmed 2026-08-25, added after the first review pass)
+
+The data model already carried three staleness-snapshot columns on `cover_designs` (§7.2: `title_candidate_id`, `format_recommendation_id`, `content_build_confirmed_at`) but the first draft of this document never spelled out the treatment — a real gap, caught before build planning rather than silently filled in. **Confirmed by Arman: soft, matching every mature phase's precedent (Steps 6/7/8)** — a generated cover, and any hand-picked candidate history sitting behind it, represents real spend (§4) and real curation effort worth protecting from a forced redo, the same "expensive to lose" argument every prior soft-staleness phase made.
+
+| Dependency | Detection | Why this mechanism |
+|---|---|---|
+| Title | FK equality: `cover_designs.title_candidate_id` vs. live `projects.selected_candidate_id` | Same technique every phase since Step 5 has used |
+| Confirmed format | FK equality: `cover_designs.format_recommendation_id` vs. live `projects.current_format_recommendation_id` | Same technique |
+| Content build | Timestamp comparison: `cover_designs.content_build_confirmed_at` vs. live `content_builds.confirmed_at`, **falling back to `content_builds.updated_at` when currently unconfirmed** | Direct reuse of Step 8's own precedent for depending on Step 7's list (`phase6-requirements.md`'s `loadGenerationContext` fallback) — `content_builds` can be legitimately unlocked/unconfirmed at the moment this check runs, same unresolved cross-phase interaction decision 25 of Step 8 already flagged, extended here rather than re-litigated |
+
+**Precedence when multiple are stale simultaneously: title > format > content-build** — same ordering convention established since Step 5, continued through Steps 7/8's `detectStalenessReason`/`detectDocumentStalenessReason`.
+
+**Effect, identical regardless of which dependency triggered it:** none of `cover_generations`' rows or the stored assets are touched. If `cover_designs.status='confirmed'`, it reverts to `draft` (`approval_status` reverts to `pending`, `approved_at`/`approved_by` cleared) and `projects.status` reverts to `design_generating` — a `getCurrentCoverDesign()` orchestration function, mirroring `getCurrentContentBuild()`/`getCurrentSubtopicList()`, is in scope for this build's core-orchestration increment.
+
 ---
 
 ## 8. Guardrail Layer — Honest About What's Actually Checkable
@@ -345,5 +359,6 @@ Per the constraint to be explicit about which parts of this phase can be determi
 | 16 | **Template library (4–8 real designs): Arman will design these himself** (likely with AI design assistance), once Step 9's build reaches that stage — not blocking the engine/infrastructure build now. §2.2, §7.5. |
 | 17 | **Supabase Storage bucket/policy/URL design: deferred to DEV's build-planning stage**, with an explicit review checkpoint before it ships — not decided blind in this document, per the product spec's own "auth/RLS reviewed before shipping" principle extended to storage. §5.3. |
 | 18 | **Add an explicit "Undo last edit" action**, beyond just relying on "the previous candidate is still browsable" — cheap to add (reuses `parent_generation_id`, no new schema), reduces user error. §6.3, §7.8. |
+| 19 | **Staleness: three dependencies (title, format, content-build), all soft** — a real gap in the first draft, caught and confirmed before build planning rather than during it. Same detection/precedence/effect pattern as Steps 6/7/8; content-build uses a timestamp comparison with the same unconfirmed-fallback Step 8 already established for the identical cross-phase situation. §7.10. |
 
-**Status: Step 9 requirements are locked. Not yet built** — DEV work starts now. All 18 items above confirmed by Arman on 2026-08-25, including the connector-tier/cost figures verified live against a real, funded Gemini API key (§3.2) — not left as research-only estimates the way every other item in this table started out.
+**Status: Step 9 requirements are locked. Not yet built** — DEV work starts now. All 19 items above confirmed by Arman on 2026-08-25, including the connector-tier/cost figures verified live against a real, funded Gemini API key (§3.2) — not left as research-only estimates the way every other item in this table started out.
