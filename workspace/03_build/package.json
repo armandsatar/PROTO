@@ -19,9 +19,11 @@
     "smoke:subtopics-ai": "tsx --env-file=.env scripts/smoke-test-subtopics-ai.ts",
     "smoke:subtopics": "tsx --env-file=.env scripts/smoke-test-subtopics.ts",
     "smoke:content-ai": "tsx --env-file=.env scripts/smoke-test-content-ai.ts",
-    "smoke:content": "tsx --env-file=.env scripts/smoke-test-content.ts"
+    "smoke:content": "tsx --env-file=.env scripts/smoke-test-content.ts",
+    "verify:gemini": "tsx --env-file=.env scripts/verify-gemini-connector.ts"
   },
   "dependencies": {
+    "@google/genai": "^2.18.0",
     "@supabase/supabase-js": "^2.112.3",
     "groq-sdk": "^1.5.0",
     "next": "16.3.1",
