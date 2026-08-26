@@ -1,9 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import * as crypto from 'node:crypto';
 import { generateCoverCandidate } from './generateCoverCandidate';
+import { generateCoverEdit } from './generateCoverEdit';
 import { renderCoverImage } from './renderCoverImage';
 import { uploadCoverAsset } from './storage';
-import { assertCanApprove, assertCandidateCapNotExceeded } from './guardrail';
+import { assertCanApprove, assertCandidateCapNotExceeded, assertEditRoundCapNotExceeded } from './guardrail';
 import { detectDocumentStalenessReason, type DocumentStalenessReason } from './rules';
 import { getLookById, DEFAULT_LOOK_ID } from './templates';
 import { NANOBANANA_MODEL } from '../ai/nanobanana';
@@ -201,6 +202,7 @@ export async function generateInitialCandidate(params: GenerateInitialCandidateP
   let assetStoragePath: string | null = null;
   let model: string | null = NANOBANANA_MODEL;
   let errorDetail: string | null = null;
+  let promptSent: string | null = null;
 
   try {
     const candidate = await generateCoverCandidate({
@@ -211,6 +213,7 @@ export async function generateInitialCandidate(params: GenerateInitialCandidateP
     });
     geminiInteractionId = candidate.interactionId;
     costUsd = candidate.costUsd;
+    promptSent = candidate.promptSent;
 
     const composited = await renderCoverImage({
       look,
@@ -243,6 +246,7 @@ export async function generateInitialCandidate(params: GenerateInitialCandidateP
       generation_number: generationNumber,
       trigger_scope: 'initial_candidate',
       look_id: effectiveLookId,
+      prompt_sent: promptSent,
       gemini_interaction_id: geminiInteractionId,
       asset_storage_path: assetStoragePath,
       model,
@@ -397,4 +401,241 @@ export async function getCurrentCoverDesign(params: GetCurrentParams): Promise<G
   }
 
   return { design: currentDesign, isStale: staleReason !== null, staleReason };
+}
+
+interface StyleEditParams {
+  supabase: SupabaseClient;
+  projectId: string;
+  workspaceId: string;
+  editInstruction: string;
+  /** Required (must be true) once the 5-edit-round cap is reached — decision 15's hard-cap gate. */
+  acknowledgeAdditionalCost?: boolean;
+}
+
+/**
+ * §7.8's Style-edit action — draft status only, does not require unlocking the whole
+ * design. Uses Gemini's own multi-turn continuation against the CURRENT generation's
+ * gemini_interaction_id (§3.2's live-verified mechanism), so the model already has
+ * the prior image and only needs the new instruction.
+ */
+export async function styleEdit(params: StyleEditParams): Promise<GenerateInitialCandidateResult> {
+  const { supabase, projectId, workspaceId, editInstruction, acknowledgeAdditionalCost } = params;
+  const design = await requireDraftDesign(supabase, projectId);
+  assertEditRoundCapNotExceeded(design.edit_round_count, acknowledgeAdditionalCost);
+
+  if (!design.current_cover_generation_id) {
+    throw new Error('No current cover candidate to edit — generate an initial candidate first');
+  }
+
+  const { data: currentGeneration, error: currentGenErr } = await supabase
+    .from('cover_generations')
+    .select('*')
+    .eq('id', design.current_cover_generation_id)
+    .single();
+  if (currentGenErr || !currentGeneration) throw new Error(`Current cover generation not found: ${currentGenErr?.message}`);
+  if (!currentGeneration.gemini_interaction_id) {
+    throw new Error('Current cover generation has no Gemini interaction id to continue from (was it a user_upload?)');
+  }
+
+  const ctx = await loadGenerationContext(supabase, projectId);
+  const effectiveLookId = currentGeneration.look_id ?? design.confirmed_look_id;
+  const look = getLookById(effectiveLookId);
+  if (!look) throw new Error(`Unknown look id: ${effectiveLookId}`);
+
+  const generationNumber = await nextGenerationNumber(supabase, design.id);
+  const generationId = crypto.randomUUID();
+
+  let generationStatus: CoverGenerationStatus = 'succeeded';
+  let geminiInteractionId: string | null = null;
+  let costUsd: number | null = null;
+  let assetStoragePath: string | null = null;
+  let model: string | null = NANOBANANA_MODEL;
+  let errorDetail: string | null = null;
+  let promptSent: string | null = null;
+
+  try {
+    const edited = await generateCoverEdit({ editInstruction, previousInteractionId: currentGeneration.gemini_interaction_id });
+    geminiInteractionId = edited.interactionId;
+    costUsd = edited.costUsd;
+    promptSent = edited.promptSent;
+
+    const composited = await renderCoverImage({
+      look,
+      title: ctx.candidate.candidate_text,
+      artBase64: edited.imageDataBase64,
+      artMimeType: edited.mimeType,
+    });
+    assetStoragePath = await uploadCoverAsset({
+      supabase,
+      workspaceId,
+      projectId,
+      coverGenerationId: generationId,
+      buffer: composited,
+      contentType: 'image/png',
+    });
+  } catch (err) {
+    // Decision 10's continuation: leave the target row untouched (nothing was
+    // overwritten), an honest failed log entry, no fabricated asset.
+    generationStatus = 'failed_fallback';
+    model = 'fallback-no-image';
+    errorDetail = err instanceof Error ? err.message : 'Cover style-edit failed';
+  }
+
+  const { data: generation, error: genInsertErr } = await supabase
+    .from('cover_generations')
+    .insert({
+      id: generationId,
+      workspace_id: workspaceId,
+      project_id: projectId,
+      cover_design_id: design.id,
+      generation_number: generationNumber,
+      trigger_scope: 'style_edit',
+      parent_generation_id: currentGeneration.id,
+      look_id: effectiveLookId,
+      edit_instruction: editInstruction,
+      prompt_sent: promptSent,
+      gemini_interaction_id: geminiInteractionId,
+      asset_storage_path: assetStoragePath,
+      model,
+      cost_usd: costUsd,
+      generation_status: generationStatus,
+      error_detail: errorDetail,
+      completed_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+  if (genInsertErr || !generation) throw new Error(`Failed to persist style-edit generation row: ${genInsertErr?.message}`);
+
+  const { data: updatedDesign, error: designUpdateErr } = await supabase
+    .from('cover_designs')
+    .update({
+      // Same behavior on failure as generateInitialCandidate: leave whatever the
+      // current candidate was untouched rather than pointing at a failed attempt.
+      current_cover_generation_id: generationStatus === 'succeeded' ? generation.id : design.current_cover_generation_id,
+      edit_round_count: design.edit_round_count + 1,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', design.id)
+    .select()
+    .single();
+  if (designUpdateErr || !updatedDesign) throw new Error(`Failed to update cover design: ${designUpdateErr?.message}`);
+
+  return { design: updatedDesign as CoverDesignRow, generation: generation as CoverGenerationRow };
+}
+
+interface UploadOwnImageParams {
+  supabase: SupabaseClient;
+  projectId: string;
+  workspaceId: string;
+  buffer: Buffer;
+  contentType: string;
+}
+
+/**
+ * §7.8's Upload own image action — no AI call, no cap involved (candidate_count and
+ * edit_round_count are untouched, per the action table). §5.4's data shape: a
+ * generation-log entry with model/cost_usd/prompt_sent all left null, generation_status
+ * trivially 'succeeded' (a completed upload is either persisted or the action never
+ * completes at all).
+ */
+export async function uploadOwnImage(params: UploadOwnImageParams): Promise<GenerateInitialCandidateResult> {
+  const { supabase, projectId, workspaceId, buffer, contentType } = params;
+  const design = await requireDraftDesign(supabase, projectId);
+
+  const generationNumber = await nextGenerationNumber(supabase, design.id);
+  const generationId = crypto.randomUUID();
+
+  const assetStoragePath = await uploadCoverAsset({ supabase, workspaceId, projectId, coverGenerationId: generationId, buffer, contentType });
+
+  const { data: generation, error: genInsertErr } = await supabase
+    .from('cover_generations')
+    .insert({
+      id: generationId,
+      workspace_id: workspaceId,
+      project_id: projectId,
+      cover_design_id: design.id,
+      generation_number: generationNumber,
+      trigger_scope: 'user_upload',
+      asset_storage_path: assetStoragePath,
+      generation_status: 'succeeded',
+      completed_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+  if (genInsertErr || !generation) throw new Error(`Failed to persist upload generation row: ${genInsertErr?.message}`);
+
+  const { data: updatedDesign, error: designUpdateErr } = await supabase
+    .from('cover_designs')
+    .update({ current_cover_generation_id: generation.id, updated_at: new Date().toISOString() })
+    .eq('id', design.id)
+    .select()
+    .single();
+  if (designUpdateErr || !updatedDesign) throw new Error(`Failed to update cover design: ${designUpdateErr?.message}`);
+
+  return { design: updatedDesign as CoverDesignRow, generation: generation as CoverGenerationRow };
+}
+
+interface PickOlderCandidateParams {
+  supabase: SupabaseClient;
+  projectId: string;
+  coverGenerationId: string;
+}
+
+/**
+ * §7.8's Pick an older candidate action — no new AI call, no new log row, since the
+ * artifact already exists (§5.2's "keep every previous candidate" property).
+ */
+export async function pickOlderCandidate(params: PickOlderCandidateParams): Promise<CoverDesignRow> {
+  const { supabase, projectId, coverGenerationId } = params;
+  const design = await requireDraftDesign(supabase, projectId);
+
+  const { data: targetGeneration, error: targetErr } = await supabase
+    .from('cover_generations')
+    .select('id')
+    .eq('id', coverGenerationId)
+    .eq('cover_design_id', design.id)
+    .single();
+  if (targetErr || !targetGeneration) throw new Error(`Target generation not found in this design's history: ${targetErr?.message}`);
+
+  const { data: updated, error: updateErr } = await supabase
+    .from('cover_designs')
+    .update({ current_cover_generation_id: targetGeneration.id, updated_at: new Date().toISOString() })
+    .eq('id', design.id)
+    .select()
+    .single();
+  if (updateErr || !updated) throw new Error(`Failed to pick older candidate: ${updateErr?.message}`);
+
+  return updated as CoverDesignRow;
+}
+
+interface UndoLastEditParams {
+  supabase: SupabaseClient;
+  projectId: string;
+}
+
+/**
+ * Decision 18's "Undo last edit" — a scoped convenience wrapper around
+ * pickOlderCandidate (§6.3), going back exactly one step via the current
+ * generation's own parent_generation_id, rather than requiring the caller to browse
+ * history. Only undoes a style_edit — an initial_candidate/user_upload has no parent.
+ */
+export async function undoLastEdit(params: UndoLastEditParams): Promise<CoverDesignRow> {
+  const { supabase, projectId } = params;
+  const design = await requireDraftDesign(supabase, projectId);
+
+  if (!design.current_cover_generation_id) {
+    throw new Error('No current cover generation to undo');
+  }
+
+  const { data: currentGeneration, error } = await supabase
+    .from('cover_generations')
+    .select('parent_generation_id')
+    .eq('id', design.current_cover_generation_id)
+    .single();
+  if (error || !currentGeneration) throw new Error(`Current cover generation not found: ${error?.message}`);
+  if (!currentGeneration.parent_generation_id) {
+    throw new Error('Current cover generation has no parent to undo to — only a style-edit can be undone');
+  }
+
+  return pickOlderCandidate({ supabase, projectId, coverGenerationId: currentGeneration.parent_generation_id });
 }

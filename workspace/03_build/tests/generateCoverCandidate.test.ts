@@ -42,6 +42,7 @@ describe('generateCoverCandidate', () => {
     expect(result.imageDataBase64).toBe('ZmFrZS1pbWFnZS1kYXRh');
     expect(result.mimeType).toBe('image/jpeg');
     expect(result.costUsd).toBe(0.0891);
+    expect(result.promptSent).toContain(baseInput.title);
     expect(mockCreate).toHaveBeenCalledTimes(1);
   });
 

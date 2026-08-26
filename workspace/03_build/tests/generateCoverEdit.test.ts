@@ -38,6 +38,7 @@ describe('generateCoverEdit', () => {
     const callArgs = mockCreate.mock.calls[0][0];
     expect(callArgs.previous_interaction_id).toBe('v1_test_interaction_id');
     expect(callArgs.input).toContain('Move the title header to middle-left');
+    expect(result.promptSent).toContain('Move the title header to middle-left');
   });
 
   it('computes cost from the edit call\'s own usage numbers', async () => {

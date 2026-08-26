@@ -16,6 +16,7 @@ export interface GenerateCoverCandidateResult {
   imageDataBase64: string;
   mimeType: string;
   costUsd: number;
+  promptSent: string;
 }
 
 // §2.2's Anti-Slop imagery rule, carried as prompt-engineering responsibility (§8 rule
@@ -47,5 +48,6 @@ export async function generateCoverCandidate(input: GenerateCoverCandidateInput)
     imageDataBase64: result.imageDataBase64,
     mimeType: result.mimeType,
     costUsd: computeCostUsd({ totalInputTokens: result.totalInputTokens, totalOutputTokens: result.totalOutputTokens }),
+    promptSent: prompt,
   };
 }

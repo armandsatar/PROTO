@@ -21,5 +21,14 @@ export { generateCoverEdit } from './generateCoverEdit';
 export type { GenerateCoverEditInput } from './generateCoverEdit';
 export { buildCoverAssetPath, uploadCoverAsset, getSignedCoverUrl } from './storage';
 export type { UploadCoverAssetParams, GetSignedCoverUrlParams } from './storage';
-export { generateInitialCandidate, approve, unlockCoverDesign, getCurrentCoverDesign } from './runCoverDesign';
+export {
+  generateInitialCandidate,
+  approve,
+  unlockCoverDesign,
+  getCurrentCoverDesign,
+  styleEdit,
+  uploadOwnImage,
+  pickOlderCandidate,
+  undoLastEdit,
+} from './runCoverDesign';
 export type { CoverDesignRow, CoverGenerationRow, GenerateInitialCandidateResult, GetCurrentCoverDesignResult } from './runCoverDesign';

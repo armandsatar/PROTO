@@ -16,15 +16,14 @@ export interface GenerateCoverEditInput {
  * scopes this to a "thin prompt-construction function," not a rewritten request.
  */
 export async function generateCoverEdit(input: GenerateCoverEditInput): Promise<GenerateCoverCandidateResult> {
-  const result = await nanoBananaInteraction({
-    input: `Apply this edit to the image: ${input.editInstruction}`,
-    previousInteractionId: input.previousInteractionId,
-  });
+  const prompt = `Apply this edit to the image: ${input.editInstruction}`;
+  const result = await nanoBananaInteraction({ input: prompt, previousInteractionId: input.previousInteractionId });
 
   return {
     interactionId: result.interactionId,
     imageDataBase64: result.imageDataBase64,
     mimeType: result.mimeType,
     costUsd: computeCostUsd({ totalInputTokens: result.totalInputTokens, totalOutputTokens: result.totalOutputTokens }),
+    promptSent: prompt,
   };
 }
