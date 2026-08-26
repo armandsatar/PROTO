@@ -1,15 +1,17 @@
 # PROTO — Phase 8 Technical Requirements: Step 10 (Copywriting)
 
-**Scope:** Spec Step 10 only — generating platform-specific **store listing copy** (Etsy, Gumroad, StanStore, Whop) and **social promo copy** (Pinterest pin, Instagram caption) for a project, respecting each destination's real format/length conventions (§3), running an anti-slop/anti-genericness pass tuned to marketing-copy failure modes (§5) and a compliance pass carried over from Step 8's health-claims guardrail (§6), and giving the user manual edit + regenerate + confirm control per §7. Consumes the confirmed title (Steps 1–3), confirmed format + delivery mode (Step 4), the transformation map (Step 6, tone/voice context), the confirmed subtopics list (Step 7, structural "what's inside" signal), the confirmed content bodies (Step 8, the source of concrete, niche-specific detail this phase pulls from — see §2), and the approved cover (Step 9, light style/mood context only — see §2.5). **Does not cover:**
+**Scope:** Spec Step 10 only — generating **one shared marketing narrative** (hook, transformation story, CTA, summary — decision 14, §0.4), then adapting it into platform-specific **store listing copy** (Etsy, Gumroad, StanStore, Whop) and **social promo copy** (Pinterest pin, Instagram caption) for a project, respecting each destination's real format/length conventions (§3), running an anti-slop/anti-genericness pass tuned to marketing-copy failure modes (§5) and a compliance pass carried over from Step 8's health-claims guardrail (§6) on both the narrative and every platform's adapted output, and giving the user manual edit + regenerate + confirm control over the narrative and each platform independently per §7. Consumes the confirmed title (Steps 1–3), confirmed format + delivery mode (Step 4), the transformation map (Step 6, tone/voice context), the confirmed subtopics list (Step 7, structural "what's inside" signal), the confirmed content bodies (Step 8, the source of concrete, niche-specific detail this phase pulls from — see §2), and the approved cover (Step 9, light style/mood context only — see §2.5). **Does not cover:**
 - **Step 11 (Export)** — the actual output-file assembly (PDF/Notion/Docx/ebook). Notably, Step 11 runs *after* this phase in the pipeline, which creates a real sequencing question this document surfaces rather than silently resolves — see §2.6.
 - **Step 12 (Pricing)** — no price is known or referenced at this stage.
 - **The Bundle Engine** — no cross-product bundling logic.
 - **Actually publishing/posting copy to any platform via API** (Etsy's listing API, Instagram's Graph API, etc.). Nothing in the product spec describes PROTO as a publishing/scheduling tool for Step 10 — this phase produces copy text for Arman to manually paste into each platform's own listing/post-creation flow. Stated explicitly because it's an easy scope creep to assume otherwise once "platform-specific" is in the phase name.
 - **Hashtag strategy as its own research discipline** beyond what's needed to fit Instagram/Pinterest's own conventions — confirmed out of scope, decision 9, §10.
 
-**Connector: Groq, same precedent as every prior text-generation phase, no correction needed.** Unlike Step 8/Step 9 (which both had to flag a spec-vs-reality connector correction), Step 10's own spec text names no connector at all — §5 of the product spec's "Claude API" language is the same BYOK-aspirational text already established as not-yet-built (per `phase6-requirements.md`'s callout). This document defaults to Groq (`lib/ai/groq.ts`, `openai/gpt-oss-120b`, confirmed live) for the same reason every phase since Step 2 has: it's the connector that actually exists. **No new connector is needed.** Generation here is pure text-in/text-out — there is no requirement anywhere in this phase for the model to *see* the cover image (§2.5 works through this explicitly), so Nano Banana 2/Gemini's vision capability is never invoked. `getSignedCoverUrl` (Step 9) is only relevant for showing a human-facing preview of the cover next to generated copy in the UI — not as a generation input.
+**Connector: Groq by default, plus a real scoped Claude/OpenAI option (decision 13, added 2026-08-27).** Step 10's own spec text names no connector at all — §5 of the product spec's "Claude API" language, and the "natural-language router" it describes routing through, are both confirmed **not built anywhere in this codebase** (checked directly against the product spec and every prior phase's `lib/ai/` directory before assuming otherwise). Groq (`lib/ai/groq.ts`, `openai/gpt-oss-120b`) remains this phase's default, same reasoning as every phase since Step 2. **New**: `lib/ai/claude.ts` and `lib/ai/openai.ts` — real wrappers, not stubs — give Arman an explicit, static per-build switch (`COPYWRITING_AI_PROVIDER` env var, `groq`/`claude`/`openai`, defaulting to `groq`) to point this specific step's writing at a paid provider once he's chosen one. This is **not** the general router — no intent classification, no per-request auto-routing, no UI, no BYOK key storage — a scoped, single-step addition only. Generation stays pure text-in/text-out regardless of provider — there is no requirement anywhere in this phase for the model to *see* the cover image (§2.5 works through this explicitly), so Nano Banana 2/Gemini's vision capability is never invoked. `getSignedCoverUrl` (Step 9) is only relevant for showing a human-facing preview of the cover next to generated copy in the UI — not as a generation input.
 
-**Status: Decisions Locked (2026-08-26), with two explicit exceptions.** All 12 items in §10 confirmed by Arman, except decisions 5 (StanStore/Whop field limits) and 6 (Gumroad Markdown), which are deferred pending Arman's own account verification and do not block DEV work on the rest of the phase. DEV work starts now.
+**A disclosed testing gap, not a silent one**: every other AI-facing connector in this codebase was live-verified against a real key before any orchestration code trusted it. Since Groq stays the operative default and Arman doesn't have Claude/OpenAI keys ready yet, those two wrappers ship with the same mocked-unit-test coverage as everything else in this phase but **no live verification** — deferred to whenever Arman actually activates one with a real key, not treated as equivalent to Groq's live-proven status in the meantime.
+
+**Status: Decisions Locked (2026-08-26), amended 2026-08-27, with two explicit exceptions.** All 14 items in §10 confirmed by Arman (12 original + 2 added during build planning), except decisions 5 (StanStore/Whop field limits) and 6 (Gumroad Markdown), which stay deferred pending Arman's own account verification and do not block DEV work on the rest of the phase. DEV work starts now.
 
 ---
 
@@ -33,7 +35,16 @@ Step 8's defining property was "N rows, cardinality inherited from `subtopics`, 
 
 ### 0.3 A genuinely new wrinkle: the six rows are not structurally identical
 
-Every one of Step 8's N rows held the same shape (`body: text`, one prose field). Step 10's six rows do **not** share one field set — Instagram is caption-only; Etsy needs title + description + a structured tag list; StanStore needs title + subtitle + description; Whop needs name + headline + description; Pinterest needs title + description. This heterogeneity is real and drives the data-shape recommendation in §8 — flagged here so it isn't silently smoothed over by reusing Step 8's single-`body`-column shape unmodified.
+Every one of Step 8's N rows held the same shape (`body: text`, one prose field). Step 10's six rows do **not** share one field set — Instagram is caption-only; Etsy needs title + description + a structured tag list; StanStore needs title + subtitle + description; Whop needs name + headline + description; Pinterest needs title + description. This heterogeneity is real and drives the data-shape recommendation in §9 — flagged here so it isn't silently smoothed over by reusing Step 8's single-`body`-column shape unmodified.
+
+### 0.4 A shared core narrative, adapted per platform — decision 14, added 2026-08-27
+
+**Reopened during build planning: Arman wants one marketing narrative (hook, transformation story, CTA, summary) written once, then adapted per platform's own constraints — not six platforms independently writing their own copy from scratch.** This is a genuine, resolved change to the shape described above, not an implementation detail:
+
+- **The six real platforms no longer generate independently.** Each is now an *adaptation* of one shared narrative, fitted to that platform's hard/soft length targets (§2.7) and field schema. Consistency across platforms comes from sharing one source, not from cross-referencing siblings (§2.2 is removed outright, see below).
+- **The narrative itself is modeled as a seventh, non-platform value of the same `copy_platform` enum** (`'narrative'`) — it reuses the exact same `platform_copies`/`copy_generations` tables rather than standing up a second parallel header+log shape for one artifact. Its four structured fields live in that row's existing `platform_fields jsonb` column; `title`/`body` stay null for that row. This is a deliberate, disclosed reuse of the sentinel-value technique, not a "real" platform.
+- **Confirmed this does not break decision 4 (hard-limit blocking) or decision 3 (document-level confirm-all)** — both operate on whatever text actually ships per platform, regardless of whether it was independently written or narrative-derived. The narrative itself has no hard limit of its own (§4 rule 1 only ever applied to platform output).
+- Full detail on the call shape, staleness, and action-model consequences of this change is in §3, §7, and §8 respectively — all updated in place, not left describing the old six-independent-generations shape.
 
 ---
 
@@ -67,9 +78,9 @@ Worked through explicitly, because titles/descriptions alone are cheap and tempt
 
 **Confirmed as the default (decision 1), with the digest approach as the documented fallback if live testing during build shows context-window strain** — not silently assuming the full-body approach "just works" at every document length.
 
-### 2.2 Sibling-platform awareness
+### 2.2 Sibling-platform awareness — removed, obsoleted by decision 14 (2026-08-27)
 
-Each platform's copy is generated independently (§4.1), but the writer prompt for every platform includes the *other* platforms' current confirmed/draft text as light context, purely so a StanStore description and a Gumroad description don't read as word-for-word identical — same "helps avoid literal repetition, not a duplicate-avoidance guardrail" posture Step 8 gave sibling subtopic titles (§6.1 of `phase6-requirements.md`).
+This subsection originally described each platform peeking at siblings' current text purely to avoid word-for-word repetition. **Obsoleted, not adapted**: under the shared-narrative shape (§0.4), every platform's copy is an adaptation of the same source narrative — consistency across platforms comes structurally from sharing one origin, not from cross-referencing independent drafts. There is nothing left for a "peek at siblings" mechanism to do.
 
 ### 2.3 Compliance pass needs body content too, not just for tone
 
@@ -158,18 +169,23 @@ Not pulled directly from Pinterest's own developer documentation (search-aggrega
 
 ## 3. Generation Approach
 
-### 3.1 Call shape — independent per-platform generation, writer + review pass (Step 8's exact pattern, reapplied)
+### 3.1 Call shape — narrative-first, then per-platform adaptation (decision 14, revised 2026-08-27)
 
-**Six independent generation targets, each with its own writer pass + review pass** — same two-call structure Step 8 locked in (`phase6-requirements.md` §3.1) for the same reason: a single call trying to write well *and* self-police length/compliance/specificity simultaneously risks instruction drift on the highest-stakes objective. No shared "generate all six in one call" mode — there's no cross-platform namespace problem requiring joint reasoning (direct parallel to Step 8's own conclusion in §6.3 that regenerate-one needs no duplicate-avoidance guardrail).
+**Two phases, not six independent generations.** Phase one writes the shared narrative once; phase two adapts it into each of the six platforms' fields. Both phases keep Step 8's exact two-call writer+review structure (`phase6-requirements.md` §3.1) — a single call trying to write well *and* self-police compliance/specificity simultaneously risks instruction drift on the highest-stakes objective.
 
-- **Writer pass**: given title, format/delivery mode, transformation-map tone context, full subtopic list + content bodies (§2.1), sibling-platform drafts (§2.2), cover look/mood (§2.5), and *this specific platform's* hard/soft length targets (§2.7) — produces a first-draft set of fields for that platform (e.g., for Etsy: `{title, description, tags[]}`).
-- **Review pass**: reads the draft, performs (a) the marketing-specific anti-slop/specificity check (§5), (b) the compliance/claims check carried over from Step 8 (§6), and (c) a **deterministic hard-limit check** unique to this phase (§4) — returns a structured response with any rewritten spans plus a specificity score, mirroring Step 8's `content_generations.output_snapshot` / `content_compliance_changes` pattern exactly.
+- **Narrative writer pass**: given title, format/delivery mode, transformation-map tone context, full subtopic list + content bodies (§2.1), and cover look/mood (§2.5) — produces the four narrative fields: `{hook, transformation_story, cta, summary}`. No platform-specific constraints apply here; this pass never sees any platform's length targets.
+- **Narrative review pass**: the marketing-specific anti-slop/specificity check (§5), the compliance/claims check (§6), and the over-promise check (§6.3) — same combined-call shape as every review pass in this codebase. No hard-limit check here (§4 rule 1 only ever applies to platform output).
+- **Per-platform adaptation writer pass** (one per real platform, ×6): given the narrative's four fields plus *this specific platform's* hard/soft length targets and field schema (§2.7) — produces that platform's fields (e.g., for Etsy: `{title, description, tags[]}`), fitted to format, not rewritten from scratch. Owns the hard-limit retry loop (§4 rule 1): a still-over-ceiling result after one retry is persisted as-is with `hard_limit_status='exceeds_limit'`, blocking that platform's confirm (§4.1) rather than being silently accepted or discarded.
+- **Per-platform adaptation review pass** (×6): the **full** same review — anti-slop/specificity (§5), compliance/claims (§6), over-promise (§6.3) — run again on the *adapted* output, not skipped just because the narrative was already reviewed. Decision 6.2's "the shipped text is the literal advertising claim" reasoning applies to whatever text actually ships, and adaptation could still introduce a new absolutist phrase even from clean source material.
 
-**Twelve Groq calls per full-project generation (6 platforms × 2 passes)** — more than Step 9's single-image-per-attempt cost profile, less than Step 8's worst case (up to 30 for a 15-item ebook). Free on Groq, so the constraint is call-volume/blast-radius, not dollars — same category of concern that made Step 8 break auto-fire precedent (§4.2 works through whether Step 10 should too).
+**Fourteen Groq calls per full-project generation** (1 narrative pass-pair + 6 platform pass-pairs × 2) — two more than the original 12-call independent-generation design, still well under Step 8's worst case (up to 30 for a 15-item ebook). Free on Groq (or whichever provider decision 13 selects), so the constraint stays call-volume/blast-radius, not dollars.
 
-### 3.2 Regeneration is per-platform, not all-or-nothing
+### 3.2 Regeneration — narrative and platforms are separate actions (revised 2026-08-27)
 
-Each of the six platform rows can be regenerated independently (`trigger_scope='regenerate_one'`), or the whole batch can be regenerated together (`trigger_scope='regenerate_all'`, looping the same per-platform call pair) — direct structural parallel to Step 8 §1.8's regenerate-one/regenerate-all pair, applied to platforms instead of subtopics.
+Three independently-triggerable regeneration scopes, not two:
+- **Regenerate one platform** (`trigger_scope='regenerate_one'`) — re-adapts that platform from whatever narrative is *currently live*, never a stale snapshot.
+- **Regenerate the narrative** (its own action, §7) — rewrites the four narrative fields. **Does not cascade** to the six platforms; it only marks their `narrative_snapshot_at` out of sync (a new soft per-row staleness flag, §8), leaving their actual text untouched until Arman explicitly regenerates them.
+- **Regenerate all platforms** (`trigger_scope='regenerate_all'`) — re-adapts all six from the current narrative. **Does not regenerate the narrative itself** — narrative regeneration is the action above, kept deliberately separate so editing/regenerating the narrative and re-adapting six platforms from it are two distinct, explicit steps Arman controls independently, never bundled.
 
 ### 3.3 Generation trigger — confirmed explicit, not auto-fire
 
@@ -236,13 +252,16 @@ The FTC health-claims guidance Step 8 grounded its keyword backstop in (`phase6-
 
 | Action | What happens | Which table(s) change |
 |---|---|---|
-| **Explicit Generate Copy** (available once `cover_approved`; confirmed no auto-fire, §3.3, decision 2) | Inserts `copywriting_builds` (`status='draft'`). For each of the 6 fixed platforms: fires the writer + review call pair (§3.1, `trigger_scope='initial'`), inserts one `copy_generations` row and one `platform_copies` row. `projects.status` → `copy_generating` | All, insert |
-| **Manual edit** (`copywriting_builds.status='draft'` only) | Direct update to a `platform_copies` row's fields. Recomputes char/word counts and hard-limit status. Sets `is_edited=true`, `compliance_reviewed=false` — same semantics as Step 8's `subtopic_contents` edit behavior | `platform_copies` only |
-| **Regenerate one platform** (`draft` only) | If `is_edited=true`, requires the same explicit-acknowledgment gate every prior phase uses before overwriting hand-curated work. Fires the writer+review pair scoped to that platform (`trigger_scope='regenerate_one'`) | `copy_generations`, `platform_copies` |
-| **Regenerate all platforms** (`draft` only) | Same acknowledgment gate if any row is edited. Loops the per-platform call pair across all 6 (`trigger_scope='regenerate_all'`). Soft cap: 5 whole-batch regenerations, consistent with every prior phase's number | `copy_generations`, `platform_copies` (all rows), `copywriting_builds.regenerate_count`+1 |
-| **Confirm** (`draft` only; confirmed: **one document-level confirm**, see §7.1) | Sets `copywriting_builds.status='confirmed'`, `confirmed_at`/`confirmed_by`. `projects.status` → `copy_confirmed` (confirmed name, §9.4/§10). **Blocked if any platform's field is currently over its hard limit** (§4.1) — the one genuinely new blocking condition in this phase | `copywriting_builds` only |
+| **Explicit Generate Copy** (available once `cover_approved`; confirmed no auto-fire, §3.3, decision 2) | Inserts `copywriting_builds` (`status='draft'`). Fires the narrative writer+review pair first (§3.1, `trigger_scope='initial'` on the `'narrative'` sentinel row), then loops the platform-adaptation writer+review pair across all 6 real platforms. One `copy_generations` + one `platform_copies` row per platform, plus one pair for the narrative. `projects.status` → `copy_generating` | All, insert |
+| **Manual edit — platform** (`copywriting_builds.status='draft'` only) | Direct update to a `platform_copies` row's fields. Recomputes char/word counts and hard-limit status. Sets `is_edited=true`, `compliance_reviewed=false` — same semantics as Step 8's `subtopic_contents` edit behavior | `platform_copies` only |
+| **Manual edit — narrative** (`draft` only, new, decision 14) | Direct update to the narrative's four fields (the `'narrative'` sentinel row). Sets `is_edited=true`, `compliance_reviewed=false`. **Does not touch any platform row** — mirrors `editSubtopicContent`'s shape | `platform_copies` (narrative row only) |
+| **Regenerate one platform** (`draft` only) | If `is_edited=true`, requires the same explicit-acknowledgment gate every prior phase uses before overwriting hand-curated work. Re-adapts from whatever narrative is currently live (`trigger_scope='regenerate_one'`) | `copy_generations`, `platform_copies` |
+| **Regenerate narrative** (`draft` only, new, decision 14) | Same acknowledgment gate if the narrative row is edited. Rewrites the four narrative fields (`trigger_scope='regenerate_one'` on the `'narrative'` row). **Does not cascade** — marks all 6 platforms' `narrative_snapshot_at` out of sync (a new soft per-row staleness flag, §8) without touching their text or triggering their regeneration. Does **not** increment `copywriting_builds.regenerate_count` — only whole-document "Regenerate all platforms" does, same precedent as `regenerateOneSubtopicContent` never bumping `content_builds.regenerate_count` in Step 8 | `copy_generations`, `platform_copies` (narrative row only) |
+| **Regenerate all platforms** (`draft` only) | Same acknowledgment gate if any platform row is edited. Re-adapts all 6 from the **current** narrative (`trigger_scope='regenerate_all'`) — does **not** regenerate the narrative itself, that is the separate action above. Soft cap: 5 whole-batch regenerations, consistent with every prior phase's number | `copy_generations`, `platform_copies` (6 platform rows), `copywriting_builds.regenerate_count`+1 |
+| **Confirm** (`draft` only; confirmed: **one document-level confirm**, see §7.1) | Sets `copywriting_builds.status='confirmed'`, `confirmed_at`/`confirmed_by`. `projects.status` → `copy_confirmed` (confirmed name, §9.4/§10). **Blocked if any platform's field is currently over its hard limit** (§4.1) — the narrative row is never itself hard-limit-checked, so it can never independently block confirm | `copywriting_builds` only |
 | **Unlock / "Edit Copy"** (from `copy_confirmed`) | Reverts `copywriting_builds.status` to `draft`, `projects.status` to `copy_generating`. Content preserved, same precedent as every prior unlock | `copywriting_builds` only |
-| **Upstream title/format/map/content/cover-look change** | Soft staleness flag only, §8 | None (UI-level flag) |
+| **Upstream title/format/map/subtopics/content/cover-look change** | Soft document-level staleness flag, §8 | None (UI-level flag) |
+| **Narrative changed since a platform was last adapted** | Soft per-row staleness flag, new, §8 | None (UI-level flag) |
 
 ### 7.1 Confirm granularity — confirmed document-level
 
@@ -252,30 +271,37 @@ The FTC health-claims guidance Step 8 grounded its keyword backstop in (`phase6-
 
 ## 8. Staleness Dependencies
 
-### 8.1 Does copy depend on each upstream artifact?
+Two tiers, following Step 8's own precedent exactly: **document-level** dependencies (revert the whole build from confirmed back to draft) and a **per-row** dependency unique to this phase's own internal structure (flags an individual platform without touching the document's own confirmed/draft state) — the same shape Step 8 pioneered with its document-level title/format/map trio plus its own per-row subtopic-snapshot check.
+
+### 8.1 Document-level: does copy depend on each upstream artifact?
 
 | Dependency | Depends? | Why |
 |---|---|---|
 | Title | Yes | Baseline, every phase |
 | Format + delivery mode | Yes | Drives value-prop framing and delivery-mode language (§2.4) |
 | Transformation map | Yes — tone context, same weight as Step 8 | Voice consistency |
-| Confirmed subtopics list | Yes | "What's inside" bullet content directly reflects this |
+| Confirmed subtopics list | Yes | "What's inside" bullet content directly reflects this — **operationalized as its own detection path below (a real gap the original draft left unbuilt, closed during build planning)** |
 | **Confirmed content bodies** | **Yes — the strongest dependency in this phase, given §2.1's finding that specificity is pulled directly from body text** | If body content changes materially after copy was generated against it, the copy's specific claims may reference details that no longer exist in the product |
 | Cover look | **Yes, but narrowly** — only the registered `look_id` changing (a genuinely different template/mood), not every regenerate/style-edit that keeps the same `look_id` | Avoids over-warning on cosmetic cover iterations that don't change the thematic signal copy actually consumed (§2.5) |
 
 ### 8.2 Soft, following the established precedent — and the argument is strong here too
 
-Same "expensive-to-lose hand-curation" reasoning every phase since Step 6 has used, applied here: copy that's been generated, compliance-reviewed, and possibly hand-edited across six platforms represents real effort worth protecting from a forced redo on a minor upstream nudge. **All dependencies below are soft.**
+Same "expensive-to-lose hand-curation" reasoning every phase since Step 6 has used, applied here: copy that's been generated, compliance-reviewed, and possibly hand-edited across six platforms (plus the narrative) represents real effort worth protecting from a forced redo on a minor upstream nudge. **Every dependency below, document-level and per-row alike, is soft.**
 
-### 8.3 Detection and effect
+### 8.3 Document-level detection and effect
 
 | Dependency | Detection | Effect |
 |---|---|---|
-| Title / format / map (document-level) | FK/timestamp snapshot comparison on `copywriting_builds`, same technique every phase since Step 5 uses | If `copy_confirmed`: reverts to `copy_generating`. Stored copy untouched |
+| Title / format / transformation map | FK/timestamp snapshot comparison on `copywriting_builds`, same technique every phase since Step 5 uses | If `copy_confirmed`: reverts to `copy_generating`. Stored copy untouched |
+| **Confirmed subtopics list** (build-time gap-fill, not in the original draft) | Timestamp comparison: `copywriting_builds.subtopic_list_confirmed_at` vs. live `subtopic_lists.confirmed_at`, falling back to `subtopic_lists.updated_at` when currently unconfirmed — a direct copy of the identical column/technique `content_builds` already carries for the identical reason (Step 8's own subtopic-list version marker). Needed because Step 8's own per-row subtopic staleness never bumps `content_builds.confirmed_at`, so a subtopic edit that hasn't yet been regenerated into body text would otherwise slip past this phase's content-bodies check entirely | Same as above |
 | Content bodies | Timestamp comparison: `copywriting_builds.content_build_confirmed_at` vs. live `content_builds.confirmed_at`, falling back to `content_builds.updated_at` when currently unconfirmed — **direct reuse of the exact fallback Step 8 and Step 9 both already established for depending on a possibly-unlocked upstream document** | Same as above |
 | Cover look | Text equality: `copywriting_builds.cover_look_snapshot` vs. live `cover_designs.confirmed_look_id` | Same as above, narrower trigger condition (§8.1) |
 
-**Precedence when multiple are stale: title > format > content bodies > cover look** — continuing the exact ordering convention established since Step 5.
+**Precedence when multiple are stale: title > format > transformation map > subtopics list > content bodies > cover look.** The original draft's precedence line only named 4 of these 6 (omitting map and subtopics list); completed here the way every phase has ordered precedence — pipeline order — extending Step 8's own `title > format > map` exactly, with subtopics list slotted between map and content since content is generated from subtopics.
+
+### 8.4 Per-row: narrative-vs-platform staleness — new, decision 14 (2026-08-27)
+
+Independent of the six document-level dependencies above: each of the 6 real `platform_copies` rows carries its own `narrative_snapshot_at`, frozen at the moment that platform was last generated/adapted from the narrative. If the narrative row's own `updated_at` has since moved past that snapshot (via a manual edit or a narrative-only regenerate, §3.2/§7), that specific platform is flagged "stale relative to the narrative" — **the exact same frozen-snapshot-vs-live-value technique Step 8 already established for its own per-row subtopic staleness** (`isSubtopicContentStale`), applied one level up. Soft, non-blocking, does not revert `copywriting_builds.status` — mirrors exactly how Step 8's per-row flag never touches `content_builds.status` either. Detected and surfaced the same way Step 8 surfaces `staleSubtopicContentIds`: a list of platform ids, checked independently of and simultaneously with document-level staleness.
 
 ---
 
@@ -285,8 +311,8 @@ Same "expensive-to-lose hand-curation" reasoning every phase since Step 6 has us
 
 | Table | Cardinality | Role |
 |---|---|---|
-| `copywriting_builds` | 1:1 per project | Header — status, lock state, staleness snapshots (title/format/map/content/cover-look), whole-batch regenerate count |
-| `platform_copies` | Up to 6 per project (1 per `copy_platform` enum value) | Live, editable row per platform |
+| `copywriting_builds` | 1:1 per project | Header — status, lock state, staleness snapshots (title/format/map/subtopics-list/content/cover-look — 6 document-level dependencies, §8.1/§8.3), whole-batch regenerate count |
+| `platform_copies` | Up to 7 per project — 6 real platforms + 1 `'narrative'` sentinel row (decision 14) — 1 per `copy_platform` enum value | Live, editable row per platform (or the shared narrative). The 6 real rows each carry `narrative_snapshot_at` for the per-row staleness check (§8.4); null on the narrative row itself |
 | `copy_generations` | Many per `platform_copies` row (one per attempt) | Append-only audit log |
 | `copy_compliance_changes` | Many per `copy_generations` row (0..N) | Span-level "Original → Rewritten, reason" log, same granularity/reasoning as Step 8's `content_compliance_changes` (§5 of `phase6-requirements.md`) — **not reused directly** (a new, parallel table, since the parent relationship differs) |
 
@@ -304,7 +330,7 @@ Since Etsy needs a tag array and StanStore needs a subtitle and Instagram needs 
 
 | New enum | Values | Reasoning |
 |---|---|---|
-| `copy_platform` | `etsy`, `gumroad`, `stanstore`, `whop`, `pinterest`, `instagram` | New — the fixed set driving §0.2's shape |
+| `copy_platform` | `etsy`, `gumroad`, `stanstore`, `whop`, `pinterest`, `instagram`, **`narrative`** (7th value, decision 14) | New — the fixed set driving §0.2's shape, plus the sentinel value (§0.4) that lets the shared narrative reuse these same tables instead of a second parallel shape |
 | `copy_trigger_scope` | `initial`, `regenerate_one`, `regenerate_all` | New — no `new_subtopic_backfill`-equivalent value needed, since the platform set is fixed, not a mutable upstream table (§0.2) |
 | `copy_generation_status` | `succeeded`, `succeeded_outside_soft_target`, `failed_hard_limit_exceeded`, `failed_fallback`, `failed_blocked` | New, 5-value — one more than Step 8's 4-value set, because §4.1's hard-limit failure is a genuinely distinct outcome no prior text phase had (an image had no length-miss-equivalent either, per Step 9's own 3-value set — this phase needs *more* granularity than either precedent, not less) |
 | `copy_hard_limit_status` | `within_limit`, `exceeds_limit` | New — persisted directly on `platform_copies` so the UI/confirm-check doesn't need to query the log to know if a row is currently blockable (§4.1, §7) |
@@ -343,5 +369,7 @@ Since Etsy needs a tag array and StanStore needs a subtitle and Instagram needs 
 | 10 | **Marketing-slop blocklist: approved as a starting heuristic list**, not independently researched to the depth Step 8's instructional-tell list was. Flagged for a tuning pass once real generated copy exists to check it against, same treatment Step 8 gave its own word-count table. §5. |
 | 11 | **Data shape: hybrid typed-columns-plus-jsonb approved** for `platform_copies` (typed `title`/`body`, `platform_fields jsonb` for the rest). §9.2. |
 | 12 | **`projects.status`: `copy_generating`/`copy_confirmed` approved as proposed.** §9.4. |
+| 13 | **AI provider: a real, scoped Claude/OpenAI addition, added 2026-08-27.** `lib/ai/claude.ts` and `lib/ai/openai.ts` are built as real wrappers alongside Groq, selected via an explicit `COPYWRITING_AI_PROVIDER` env var (default `groq`) — **not** the general natural-language router or BYOK key storage described in the product spec, both confirmed not built anywhere in this codebase and explicitly out of scope here too. Groq stays the operative default for this build; Arman switches the env var himself once he picks a paid provider. The Claude/OpenAI paths get mocked-unit-test coverage only — **no live verification in this build**, a disclosed deviation from every other connector in this codebase, deferred to whenever Arman actually activates one with a real key. Top of document, §0. |
+| 14 | **Architecture: one shared core narrative, adapted per platform — not 6 independent generations, added 2026-08-27.** A narrative writer+review pass produces `{hook, transformation_story, cta, summary}` once; each of the 6 real platforms is then an independently-regeneratable *adaptation* of that narrative, still receiving the full compliance+specificity+over-promise review Step 8's pattern requires (not skipped for adapted output). Modeled as a 7th `copy_platform` sentinel value (`'narrative'`) reusing the existing `platform_copies`/`copy_generations` tables — no new tables. Editing/regenerating the narrative does not cascade to platforms; it only flags them stale-relative-to-narrative (a new soft per-row dependency, §8.4) until Arman explicitly regenerates them. Confirmed compatible with decision 3 (document-level confirm-all) and decision 4 (hard-limit blocking) — both apply to shipped platform text regardless of its origin. §0.4, §3, §7, §8.4. |
 
-**Status: Decisions Locked (2026-08-26), with two explicit exceptions.** Items 5 and 6 are deferred pending Arman's own StanStore/Whop/Gumroad account verification — everything else is locked and DEV work can start now. Item 1 proceeds as the working default, verified live during build rather than decided further here.
+**Status: Decisions Locked (2026-08-26), amended 2026-08-27, with two explicit exceptions.** Items 5 and 6 are deferred pending Arman's own StanStore/Whop/Gumroad account verification — everything else, including the two decisions added during build planning (13, 14), is locked and DEV work starts now. Item 1 proceeds as the working default, verified live during build rather than decided further here.
