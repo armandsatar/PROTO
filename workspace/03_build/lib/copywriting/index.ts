@@ -18,6 +18,7 @@ export type {
   RawReviewResponse,
   NarrativeWriterResult,
   PlatformWriterResult,
+  PlatformWriterOutcome,
   ReviewPassResult,
 } from './types';
 export { REAL_PLATFORMS } from './types';
@@ -48,3 +49,10 @@ export {
   distinctSlopPhraseCount,
 } from './contentScanners';
 export type { ScanHit } from './contentScanners';
+export { getCopywritingProvider, getCopywritingModelName, copywritingJsonCompletion } from './aiProvider';
+export type { CopywritingProvider, JsonCompletionParams } from './aiProvider';
+export { validateNarrativeWriterOutput, validatePlatformWriterOutput, validateReviewOutput, SLOP_HIT_THRESHOLD, SPECIFICITY_SCORE_THRESHOLD } from './guardrail';
+export { generateNarrativeWriterPass, generatePlatformAdaptationWriterPass } from './generateWriterPass';
+export type { GenerateNarrativeWriterPassInput, GeneratePlatformAdaptationWriterPassInput } from './generateWriterPass';
+export { generateReviewPass } from './generateReviewPass';
+export type { GenerateReviewPassInput } from './generateReviewPass';

@@ -21,16 +21,19 @@
     "smoke:content-ai": "tsx --env-file=.env scripts/smoke-test-content-ai.ts",
     "smoke:content": "tsx --env-file=.env scripts/smoke-test-content.ts",
     "smoke:cover": "tsx --env-file=.env scripts/smoke-test-cover.ts",
+    "smoke:copy-ai": "tsx --env-file=.env scripts/smoke-test-copy-ai.ts",
     "verify:gemini": "tsx --env-file=.env scripts/verify-gemini-connector.ts",
     "verify:gemini-edit": "tsx --env-file=.env scripts/verify-gemini-edit-connector.ts",
     "test:storage-rls": "tsx --env-file=.env supabase/tests/cover_storage_rules.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.121.0",
     "@google/genai": "^2.18.0",
     "@resvg/resvg-js": "^2.6.2",
     "@supabase/supabase-js": "^2.112.3",
     "groq-sdk": "^1.5.0",
     "next": "16.3.1",
+    "openai": "^7.5.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "satori": "^0.33.4"

@@ -92,6 +92,12 @@ export interface PlatformWriterResult {
   platformFields: PlatformFields;
 }
 
+/** PlatformWriterResult plus the hard-limit retry loop's own outcome (§4.1, decision 4). */
+export interface PlatformWriterOutcome extends PlatformWriterResult {
+  hardLimitStatus: CopyHardLimitStatus;
+  hardLimitViolations: string[];
+}
+
 /**
  * `finalFields` mirrors the exact field-name set the draft was sent with (e.g.
  * {hook, transformation_story, cta, summary} for the narrative, {title, body} for a

@@ -1,99 +1,96 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockCreate } = vi.hoisted(() => ({ mockCreate: vi.fn() }));
+const { mockCompletion } = vi.hoisted(() => ({ mockCompletion: vi.fn() }));
+vi.mock('../lib/copywriting/aiProvider', () => ({ copywritingJsonCompletion: mockCompletion }));
 
-vi.mock('groq-sdk', () => {
-  class MockGroq {
-    chat = { completions: { create: mockCreate } };
-  }
-  return { default: MockGroq };
-});
+import { generateNarrativeWriterPass, generatePlatformAdaptationWriterPass } from '../lib/copywriting/generateWriterPass';
 
-import { generateWriterPass } from '../lib/content/generateWriterPass';
-
-const target = { min: 200, max: 400 };
-
-const baseInput = {
+const baseNarrativeInput = {
   title: 'Notion Budget Tracker for Freelancers',
-  rationale: 'Freelancers want ongoing tracking and dread irregular income.',
+  rationale: 'Freelancers want ongoing tracking.',
   confirmedFormat: 'workbook' as const,
   confirmedDeliveryMode: 'fillable',
-  headlineBefore: 'Dreads opening her finances every week.',
-  headlineAfter: 'Feels calm that money is handled.',
-  dimEmotionalBefore: 'A knot in her stomach every Sunday.',
-  dimEmotionalAfter: 'Sunday nights are just Sunday nights now.',
-  dimPracticalBefore: 'Manually reconciling four spreadsheets.',
-  dimPracticalAfter: 'Opens one dashboard, checks it in minutes.',
-  dimIdentityBefore: "\"I'm bad with money.\"",
-  dimIdentityAfter: "\"I'm in control of my future.\"",
-  dimPainPointBefore: 'Opening the banking app with dread.',
-  dimPainPointAfter: 'Opening the banking app on autopilot.',
-  subtopicTitle: 'Setting Up Your Weekly Budget Foundation',
-  subtopicDescription: 'Defines fixed vs. variable expenses before tracking begins.',
-  subtopicDepth: 'medium' as const,
-  siblingSubtopicTitles: ['Automating Recurring Bill Reminders'],
+  headlineBefore: 'Overwhelmed by irregular income',
+  headlineAfter: 'In control of every dollar',
+  dimEmotionalBefore: 'Anxious',
+  dimEmotionalAfter: 'Calm',
+  dimPracticalBefore: 'No system',
+  dimPracticalAfter: 'A real system',
+  dimIdentityBefore: 'Reactive',
+  dimIdentityAfter: 'Proactive',
+  dimPainPointBefore: 'Missed payments',
+  dimPainPointAfter: 'Never missed',
+  subtopics: [{ title: 'Module 1', description: 'Intro' }],
+  contentBodies: [{ subtopicTitle: 'Module 1', body: 'Real specific content about invoice tracking.' }],
+  coverLookMoodDescriptor: 'editorial and serif-driven',
 };
 
-function mockGroqResponse(content: string) {
-  mockCreate.mockResolvedValueOnce({ choices: [{ message: { content } }] });
-}
+describe('generateNarrativeWriterPass', () => {
+  beforeEach(() => mockCompletion.mockReset());
 
-function contentOfWordCount(n: number): string {
-  return Array(n).fill('word').join(' ');
-}
-
-describe('generateWriterPass', () => {
-  beforeEach(() => {
-    mockCreate.mockReset();
-    process.env.GROQ_API_KEY = 'test-key';
+  it('returns validated narrative fields', async () => {
+    mockCompletion.mockResolvedValueOnce({ hook: 'A real hook', transformation_story: 'A real story', cta: 'Buy now', summary: 'A real summary' });
+    const result = await generateNarrativeWriterPass(baseNarrativeInput);
+    expect(result.fields.hook).toBe('A real hook');
+    expect(mockCompletion).toHaveBeenCalledTimes(1);
   });
 
-  it('returns validated content on a valid first response within the target range', async () => {
-    mockGroqResponse(JSON.stringify({ content: contentOfWordCount(300) }));
-    const result = await generateWriterPass(baseInput, target);
-    expect(result.wordCount).toBe(300);
-    expect(result.meetsLengthTarget).toBe(true);
-    expect(mockCreate).toHaveBeenCalledTimes(1);
+  it('retries once on malformed output, then throws if still malformed', async () => {
+    mockCompletion.mockResolvedValueOnce({ hook: '' }).mockResolvedValueOnce({ hook: '' });
+    await expect(generateNarrativeWriterPass(baseNarrativeInput)).rejects.toThrow(/failed after retry/);
+    expect(mockCompletion).toHaveBeenCalledTimes(2);
   });
 
-  it('retries once on malformed output, then succeeds on the second attempt', async () => {
-    mockGroqResponse(JSON.stringify({ content: '' }));
-    mockGroqResponse(JSON.stringify({ content: contentOfWordCount(300) }));
+  it('succeeds on the retry after an initial malformed response', async () => {
+    mockCompletion
+      .mockResolvedValueOnce({ hook: '' })
+      .mockResolvedValueOnce({ hook: 'A real hook', transformation_story: 'A real story', cta: 'Buy now', summary: 'A real summary' });
+    const result = await generateNarrativeWriterPass(baseNarrativeInput);
+    expect(result.fields.hook).toBe('A real hook');
+  });
+});
 
-    const result = await generateWriterPass(baseInput, target);
-    expect(result.wordCount).toBe(300);
-    expect(mockCreate).toHaveBeenCalledTimes(2);
+const baseNarrative = { hook: 'A real hook', transformationStory: 'A real story', cta: 'Buy now', summary: 'A real summary' };
+const basePlatformInput = { platform: 'etsy' as const, narrative: baseNarrative, title: 'Notion Budget Tracker', confirmedFormat: 'workbook' as const, confirmedDeliveryMode: 'fillable' };
+
+describe('generatePlatformAdaptationWriterPass', () => {
+  beforeEach(() => mockCompletion.mockReset());
+
+  it('returns a within-limit result on the first attempt without retrying', async () => {
+    mockCompletion.mockResolvedValueOnce({ title: 'Short Etsy Title', body: 'A description', platform_fields: { tags: ['budget'] } });
+    const result = await generatePlatformAdaptationWriterPass(basePlatformInput);
+    expect(result.hardLimitStatus).toBe('within_limit');
+    expect(mockCompletion).toHaveBeenCalledTimes(1);
   });
 
-  it('retries once on a length miss, then accepts a within-target second attempt', async () => {
-    mockGroqResponse(JSON.stringify({ content: contentOfWordCount(10) }));
-    mockGroqResponse(JSON.stringify({ content: contentOfWordCount(300) }));
-
-    const result = await generateWriterPass(baseInput, target);
-    expect(result.wordCount).toBe(300);
-    expect(result.meetsLengthTarget).toBe(true);
-    expect(mockCreate).toHaveBeenCalledTimes(2);
-
-    const secondCallArgs = mockCreate.mock.calls[1][0];
-    const userMessage = secondCallArgs.messages.find((m: { role: string }) => m.role === 'user');
-    expect(JSON.parse(userMessage.content).retry_feedback).toMatch(/10 words/);
+  it('retries once when the title exceeds the hard limit, naming the overage in feedback', async () => {
+    mockCompletion
+      .mockResolvedValueOnce({ title: 'x'.repeat(150), body: 'A description', platform_fields: {} })
+      .mockResolvedValueOnce({ title: 'A short fixed title', body: 'A description', platform_fields: {} });
+    const result = await generatePlatformAdaptationWriterPass(basePlatformInput);
+    expect(result.hardLimitStatus).toBe('within_limit');
+    expect(mockCompletion).toHaveBeenCalledTimes(2);
+    const secondCallArgs = mockCompletion.mock.calls[1][0];
+    expect(secondCallArgs.userPrompt).toContain('hard limit');
   });
 
-  it('accepts a still-outside-target result after retry exhausted, without throwing', async () => {
-    mockGroqResponse(JSON.stringify({ content: contentOfWordCount(10) }));
-    mockGroqResponse(JSON.stringify({ content: contentOfWordCount(12) }));
-
-    const result = await generateWriterPass(baseInput, target);
-    expect(result.wordCount).toBe(12);
-    expect(result.meetsLengthTarget).toBe(false);
-    expect(mockCreate).toHaveBeenCalledTimes(2);
+  it('returns exceeds_limit as-is (not thrown) if still over after the retry — never silently dropped', async () => {
+    mockCompletion.mockResolvedValue({ title: 'x'.repeat(150), body: 'A description', platform_fields: {} });
+    const result = await generatePlatformAdaptationWriterPass(basePlatformInput);
+    expect(result.hardLimitStatus).toBe('exceeds_limit');
+    expect(result.title?.length).toBe(150);
+    expect(mockCompletion).toHaveBeenCalledTimes(2);
   });
 
-  it('throws after two consecutive malformed responses (retry exhausted)', async () => {
-    mockGroqResponse(JSON.stringify({ content: '' }));
-    mockGroqResponse(JSON.stringify({ content: '' }));
+  it('never retries for a platform with no configured hard limit (StanStore)', async () => {
+    mockCompletion.mockResolvedValueOnce({ title: 'x'.repeat(500), body: 'y'.repeat(500), platform_fields: {} });
+    const result = await generatePlatformAdaptationWriterPass({ ...basePlatformInput, platform: 'stanstore' });
+    expect(result.hardLimitStatus).toBe('within_limit');
+    expect(mockCompletion).toHaveBeenCalledTimes(1);
+  });
 
-    await expect(generateWriterPass(baseInput, target)).rejects.toThrow(/Writer pass failed after retry/);
-    expect(mockCreate).toHaveBeenCalledTimes(2);
+  it('throws when the body is malformed even after retry', async () => {
+    mockCompletion.mockResolvedValue({ title: 'ok', body: '', platform_fields: {} });
+    await expect(generatePlatformAdaptationWriterPass(basePlatformInput)).rejects.toThrow(/failed after retry/);
   });
 });
