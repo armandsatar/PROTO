@@ -30,3 +30,9 @@ export { generateExportRecommendation, confirmExportFormat, changeExportFormat }
 export type { ExportBuildRow } from './runExport';
 export { generateFieldStructurePass } from './generateFieldStructure';
 export type { GenerateFieldStructureInput } from './generateFieldStructure';
+export { renderPdfDocument, countPdfPages } from './renderPdf';
+export type { PdfSubtopicInput, RenderPdfInput } from './renderPdf';
+export { renderDocxDocument } from './renderDocx';
+export type { DocxSubtopicInput, RenderDocxInput } from './renderDocx';
+export { renderNotionMarkdown } from './renderNotionMarkdown';
+export type { NotionMarkdownSubtopicInput, RenderNotionMarkdownInput } from './renderNotionMarkdown';
