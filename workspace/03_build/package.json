@@ -22,6 +22,7 @@
     "smoke:content": "tsx --env-file=.env scripts/smoke-test-content.ts",
     "smoke:cover": "tsx --env-file=.env scripts/smoke-test-cover.ts",
     "smoke:copy-ai": "tsx --env-file=.env scripts/smoke-test-copy-ai.ts",
+    "smoke:copy": "tsx --env-file=.env scripts/smoke-test-copy.ts",
     "verify:gemini": "tsx --env-file=.env scripts/verify-gemini-connector.ts",
     "verify:gemini-edit": "tsx --env-file=.env scripts/verify-gemini-edit-connector.ts",
     "test:storage-rls": "tsx --env-file=.env supabase/tests/cover_storage_rules.ts"
