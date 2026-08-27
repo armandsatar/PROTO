@@ -25,7 +25,8 @@
     "smoke:copy": "tsx --env-file=.env scripts/smoke-test-copy.ts",
     "verify:gemini": "tsx --env-file=.env scripts/verify-gemini-connector.ts",
     "verify:gemini-edit": "tsx --env-file=.env scripts/verify-gemini-edit-connector.ts",
-    "test:storage-rls": "tsx --env-file=.env supabase/tests/cover_storage_rules.ts"
+    "test:storage-rls": "tsx --env-file=.env supabase/tests/cover_storage_rules.ts",
+    "test:export-storage-rls": "tsx --env-file=.env supabase/tests/export_storage_rules.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.121.0",
