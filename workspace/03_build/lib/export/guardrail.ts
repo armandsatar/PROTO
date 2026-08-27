@@ -39,27 +39,41 @@ function isValidFieldType(v: unknown): v is ExportFieldType {
   return typeof v === 'string' && (VALID_FIELD_TYPES as readonly string[]).includes(v);
 }
 
-function validateFieldStructureItem(raw: unknown, order: number): FieldStructureBlock | null {
+function normalizeForMatch(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/** The returned span must actually appear in the source body — decision 1 forbids rewriting, so every block is checkable this way, unlike a compliance rewrite. */
+function isRealSubstring(candidate: string, source: string): boolean {
+  return normalizeForMatch(source).includes(normalizeForMatch(candidate));
+}
+
+function validateFieldStructureItem(raw: unknown, order: number, sourceBody: string): FieldStructureBlock | null {
   if (!raw || typeof raw !== 'object') return null;
   const item = raw as RawFieldStructureItem;
   if (!isValidFieldType(item.field_type)) return null;
   if (typeof item.text !== 'string' || !item.text.trim()) return null;
-  return { fieldType: item.field_type, text: item.text.trim(), order };
+  const text = item.text.trim();
+  if (!isRealSubstring(text, sourceBody)) return null;
+  return { fieldType: item.field_type, text, order };
 }
 
 /**
  * Decision 1's structure-extraction pass guardrail — a genuinely new AI-usage
  * category (parsing/classifying already-confirmed text, not generating new prose or
- * picking a small enum). Individual malformed blocks are silently dropped rather than
- * invalidating the whole response — never fabricate, same posture as every guardrail
- * in this codebase — but there is no deterministic way to check whether a *correctly
- * shaped* block was classified correctly (the honest gap §5 rule 3 names).
+ * picking a small enum). Every block's text must be a real substring of the source
+ * body (decision 1 forbids rewriting, so this check is meaningful here in a way a
+ * generative pass's output couldn't be checked) — individual blocks failing this are
+ * silently dropped rather than invalidating the whole response, never fabricated,
+ * same posture as every guardrail in this codebase. There remains no deterministic
+ * way to check whether a *correctly extracted* span was classified into the *right*
+ * field_type (the honest gap §5 rule 3 names).
  */
-export function validateFieldStructureOutput(raw: RawFieldStructureResponse): FieldStructureResult {
+export function validateFieldStructureOutput(raw: RawFieldStructureResponse, sourceBody: string): FieldStructureResult {
   if (!Array.isArray(raw.blocks)) {
     throw new Error('Field structure extraction response missing a "blocks" array');
   }
-  const blocks = raw.blocks.map((item, i) => validateFieldStructureItem(item, i)).filter((b): b is FieldStructureBlock => b !== null);
+  const blocks = raw.blocks.map((item, i) => validateFieldStructureItem(item, i, sourceBody)).filter((b): b is FieldStructureBlock => b !== null);
   return { blocks };
 }
 

@@ -28,3 +28,5 @@ export { generateExportRecommendationCall, fallbackExportRecommendation } from '
 export type { GenerateExportRecommendationInput } from './generateExportRecommendation';
 export { generateExportRecommendation, confirmExportFormat, changeExportFormat } from './runExport';
 export type { ExportBuildRow } from './runExport';
+export { generateFieldStructurePass } from './generateFieldStructure';
+export type { GenerateFieldStructureInput } from './generateFieldStructure';
