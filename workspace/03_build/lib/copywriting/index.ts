@@ -56,5 +56,14 @@ export { generateNarrativeWriterPass, generatePlatformAdaptationWriterPass } fro
 export type { GenerateNarrativeWriterPassInput, GeneratePlatformAdaptationWriterPassInput } from './generateWriterPass';
 export { generateReviewPass } from './generateReviewPass';
 export type { GenerateReviewPassInput } from './generateReviewPass';
-export { generateCopy, editNarrative, regenerateNarrative, confirmCopywritingBuild, unlockCopywritingBuild, getCurrentCopywritingBuild } from './runCopywriting';
+export {
+  generateCopy,
+  editNarrative,
+  regenerateNarrative,
+  confirmCopywritingBuild,
+  unlockCopywritingBuild,
+  getCurrentCopywritingBuild,
+  editPlatformCopy,
+  regenerateOnePlatformCopy,
+} from './runCopywriting';
 export type { CopywritingBuildRow, PlatformCopyRow, CopyGenerationRow, GenerateCopyResult, GetCurrentCopywritingBuildResult } from './runCopywriting';

@@ -3,6 +3,7 @@ import { generateNarrativeWriterPass, generatePlatformAdaptationWriterPass } fro
 import { generateReviewPass } from './generateReviewPass';
 import { getCopywritingModelName } from './aiProvider';
 import { hasReachedRegenerateCap, checkHardLimits, detectDocumentStalenessReason, isNarrativeStale, type DocumentStalenessReason } from './rules';
+import { getPlatformSpec } from './platforms';
 import { REAL_PLATFORMS } from './types';
 import type { FormatType, CopyPlatform, RealCopyPlatform, CopyTriggerScope, CopyGenerationStatus, ContentStatus, PlatformFields, NarrativeFields } from './types';
 
@@ -814,4 +815,111 @@ export async function getCurrentCopywritingBuild(params: GetCurrentParams): Prom
   }
 
   return { build: currentBuild, platformCopies: (platformCopies ?? []) as PlatformCopyRow[], isStale: documentStaleReason !== null, documentStaleReason, staleNarrativePlatforms };
+}
+
+interface EditPlatformCopyParams {
+  supabase: SupabaseClient;
+  projectId: string;
+  platform: RealCopyPlatform;
+  userId: string;
+  title?: string | null;
+  body: string;
+  platformFields?: PlatformFields;
+}
+
+/**
+ * §7's "Manual edit — platform" action — draft status only. Same content_status
+ * transition rule as Step 8's editSubtopicContent: a row that never had real AI
+ * content (`failed_empty`) becomes `manual` once hand-filled; an already-`generated`
+ * row stays `generated` when hand-tweaked (`is_edited=true` alone carries the
+ * "diverged from AI output" signal). Recomputes hard_limit_status against the edited
+ * fields — a manual edit can just as easily introduce or fix a hard-limit violation as
+ * a regenerate can.
+ */
+export async function editPlatformCopy(params: EditPlatformCopyParams): Promise<PlatformCopyRow> {
+  const { supabase, projectId, platform, userId, body, platformFields } = params;
+  const build = await requireDraftBuild(supabase, projectId);
+
+  const spec = getPlatformSpec(platform);
+  const trimmedBody = body.trim();
+  if (!trimmedBody) throw new Error('Copy body cannot be empty');
+  const title = spec.hasTitle ? (params.title?.trim() ?? null) : null;
+  if (spec.hasTitle && !title) throw new Error(`Platform "${platform}" requires a title`);
+
+  const { data: existing, error: existingErr } = await supabase.from('platform_copies').select('*').eq('copywriting_build_id', build.id).eq('platform', platform).single();
+  if (existingErr || !existing) throw new Error(`Platform copy not found for "${platform}" in this build: ${existingErr?.message}`);
+
+  const resolvedFields = platformFields ?? (existing.platform_fields as PlatformFields);
+  const hardLimitCheck = checkHardLimits(platform, { title, body: trimmedBody, platformFields: resolvedFields });
+  const newContentStatus: ContentStatus = existing.content_status === 'failed_empty' ? 'manual' : existing.content_status;
+
+  const { data: updated, error: updateErr } = await supabase
+    .from('platform_copies')
+    .update({
+      title,
+      body: trimmedBody,
+      platform_fields: resolvedFields,
+      word_count: trimmedBody.split(/\s+/).filter(Boolean).length,
+      char_count: (title?.length ?? 0) + trimmedBody.length,
+      hard_limit_status: hardLimitCheck.status,
+      content_status: newContentStatus,
+      is_edited: true,
+      compliance_reviewed: false,
+      last_edited_at: new Date().toISOString(),
+      last_edited_by: userId,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', existing.id)
+    .select()
+    .single();
+  if (updateErr || !updated) throw new Error(`Failed to edit platform copy: ${updateErr?.message}`);
+
+  return updated as PlatformCopyRow;
+}
+
+interface RegenerateOnePlatformCopyParams {
+  supabase: SupabaseClient;
+  projectId: string;
+  workspaceId: string;
+  platform: RealCopyPlatform;
+  /** Required (must be true) when the target row is edited — §7's single-row acknowledgment gate. */
+  acknowledgeOverwrite?: boolean;
+}
+
+/**
+ * §7's single-platform Regenerate action — draft status only, does not require
+ * unlocking the whole build. Always re-adapts from whatever narrative is CURRENTLY
+ * live (never a stale snapshot) — §3.2's explicit resolution that per-platform
+ * regenerate and narrative regenerate are independent actions, but a platform
+ * regenerate always picks up the latest narrative state available at call time.
+ */
+export async function regenerateOnePlatformCopy(params: RegenerateOnePlatformCopyParams): Promise<PlatformCopyRow> {
+  const { supabase, projectId, workspaceId, platform, acknowledgeOverwrite } = params;
+  const build = await requireDraftBuild(supabase, projectId);
+
+  const { data: existing, error: existingErr } = await supabase.from('platform_copies').select('id, is_edited').eq('copywriting_build_id', build.id).eq('platform', platform).single();
+  if (existingErr || !existing) throw new Error(`Platform copy not found for "${platform}" in this build: ${existingErr?.message}`);
+  if (existing.is_edited && acknowledgeOverwrite !== true) {
+    throw new Error(`This platform's copy has unsaved manual edits — pass acknowledgeOverwrite=true to confirm overwriting it`);
+  }
+
+  const { data: narrativeRow, error: narrativeErr } = await supabase.from('platform_copies').select('platform_fields, updated_at').eq('copywriting_build_id', build.id).eq('platform', 'narrative').single();
+  if (narrativeErr || !narrativeRow) throw new Error(`Narrative row not found: ${narrativeErr?.message}`);
+  const narrative = platformFieldsToNarrativeFields(narrativeRow.platform_fields as Record<string, unknown>);
+
+  const ctx = await loadGenerationContext(supabase, projectId);
+  const { row } = await generateAndPersistPlatformAdaptation({
+    supabase,
+    workspaceId,
+    projectId,
+    buildId: build.id,
+    ctx,
+    triggerScope: 'regenerate_one',
+    existingRowId: existing.id,
+    platform,
+    narrative,
+    narrativeUpdatedAt: narrativeRow.updated_at,
+  });
+
+  return row;
 }
