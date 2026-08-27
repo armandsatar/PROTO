@@ -15,6 +15,13 @@ function isValidOutputFormat(v: unknown): v is ExportOutputFormat {
   return typeof v === 'string' && (VALID_OUTPUT_FORMATS as readonly string[]).includes(v);
 }
 
+/** Defensive re-check at the confirm action's own boundary — same posture as every prior phase's confirm action. */
+export function assertValidOutputFormat(value: string): asserts value is ExportOutputFormat {
+  if (!isValidOutputFormat(value)) {
+    throw new Error(`Invalid output format: "${value}" — expected "pdf", "notion_markdown", or "docx"`);
+  }
+}
+
 /** §4's output-format recommendation call — same Step-4-shaped small-enum guardrail. */
 export function validateExportRecommendationOutput(raw: RawExportRecommendationResponse): ExportRecommendationResult {
   if (!isValidOutputFormat(raw.output_format)) {

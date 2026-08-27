@@ -23,4 +23,8 @@ export {
   findBlankPageIndices,
 } from './rules';
 export type { DocumentStalenessReason } from './rules';
-export { validateExportRecommendationOutput, validateFieldStructureOutput, assertCanApprove } from './guardrail';
+export { validateExportRecommendationOutput, validateFieldStructureOutput, assertCanApprove, assertValidOutputFormat } from './guardrail';
+export { generateExportRecommendationCall, fallbackExportRecommendation } from './generateExportRecommendation';
+export type { GenerateExportRecommendationInput } from './generateExportRecommendation';
+export { generateExportRecommendation, confirmExportFormat, changeExportFormat } from './runExport';
+export type { ExportBuildRow } from './runExport';
