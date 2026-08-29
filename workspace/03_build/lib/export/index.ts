@@ -36,3 +36,5 @@ export { renderDocxDocument } from './renderDocx';
 export type { DocxSubtopicInput, RenderDocxInput } from './renderDocx';
 export { renderNotionMarkdown } from './renderNotionMarkdown';
 export type { NotionMarkdownSubtopicInput, RenderNotionMarkdownInput } from './renderNotionMarkdown';
+export { renderFillablePdfDocument, countRealFormFields } from './renderFillablePdf';
+export type { FillablePdfSubtopicInput, RenderFillablePdfInput, RenderFillablePdfResult } from './renderFillablePdf';

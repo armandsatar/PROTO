@@ -25,6 +25,7 @@
     "smoke:copy": "tsx --env-file=.env scripts/smoke-test-copy.ts",
     "verify:field-structure": "tsx --env-file=.env scripts/verify-field-structure-connector.ts",
     "verify:pdf-rendering": "vite-node scripts/verify-pdf-rendering.ts",
+    "verify:fillable-pdf": "tsx --env-file=.env scripts/verify-fillable-pdf-fields.ts",
     "verify:gemini": "tsx --env-file=.env scripts/verify-gemini-connector.ts",
     "verify:gemini-edit": "tsx --env-file=.env scripts/verify-gemini-edit-connector.ts",
     "test:storage-rls": "tsx --env-file=.env supabase/tests/cover_storage_rules.ts",
