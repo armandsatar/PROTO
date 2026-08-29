@@ -1,14 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import * as crypto from 'node:crypto';
 import { generateExportRecommendationCall, GROQ_MODEL } from './generateExportRecommendation';
-import { assertValidOutputFormat } from './guardrail';
+import { assertValidOutputFormat, assertCanApprove } from './guardrail';
 import { generateFieldStructurePass } from './generateFieldStructure';
 import { renderPdfDocument, countPdfPages } from './renderPdf';
 import { renderFillablePdfDocument } from './renderFillablePdf';
 import { renderDocxDocument } from './renderDocx';
 import { renderNotionMarkdown } from './renderNotionMarkdown';
 import { uploadExportAsset } from './storage';
-import { isPageCountWithinSanityBand } from './rules';
+import { isPageCountWithinSanityBand, detectDocumentStalenessReason, type DocumentStalenessReason } from './rules';
 import type { ExportOutputFormat, ExportGenerationStatus, FormatType, DeliveryMode, FieldStructureBlock } from './types';
 
 export interface ExportFormatStateRow {
@@ -521,4 +521,161 @@ export async function generateExport(params: GenerateExportParams): Promise<Gene
   if (projectStatusErr) throw new Error(`Failed to update project status: ${projectStatusErr.message}`);
 
   return { formatState, generation: generation as ExportGenerationRow };
+}
+
+interface RequireDraftFormatStateParams {
+  supabase: SupabaseClient;
+  projectId: string;
+  outputFormat: ExportOutputFormat;
+}
+
+async function requireDraftFormatState(params: RequireDraftFormatStateParams): Promise<ExportFormatStateRow> {
+  const { supabase, projectId, outputFormat } = params;
+  const { data: state, error } = await supabase.from('export_format_states').select('*').eq('project_id', projectId).eq('output_format', outputFormat).single();
+  if (error || !state) throw new Error(`No export found for format "${outputFormat}": ${error?.message}`);
+  if (state.status !== 'draft') throw new Error(`The ${outputFormat} export is confirmed — unlock it first`);
+  return state as ExportFormatStateRow;
+}
+
+/**
+ * Decision 6's per-format independence, carried through to project status: since
+ * multiple formats can be approved simultaneously, unlocking or staleness-reverting
+ * ONE format's approval should only revert projects.status away from
+ * 'ready_to_download' if NO other format remains approved — otherwise the project is
+ * still, correctly, ready to download via whichever format is still confirmed.
+ */
+async function revertProjectStatusIfNoOtherApproved(supabase: SupabaseClient, projectId: string, excludeFormatStateId: string): Promise<void> {
+  const { data: others, error } = await supabase.from('export_format_states').select('id').eq('project_id', projectId).eq('approval_status', 'approved').neq('id', excludeFormatStateId);
+  if (error) throw new Error(`Failed to check for other approved export formats: ${error.message}`);
+  if ((others ?? []).length === 0) {
+    const { error: statusErr } = await supabase.from('projects').update({ status: 'export_generating' }).eq('id', projectId);
+    if (statusErr) throw new Error(`Failed to revert project status: ${statusErr.message}`);
+  }
+}
+
+interface ApproveExportParams {
+  supabase: SupabaseClient;
+  projectId: string;
+  outputFormat: ExportOutputFormat;
+  userId: string;
+}
+
+/**
+ * §6's Approve action, decision 4 — mirrors cover_designs' approve() exactly, scoped
+ * per format. Decision 7: the first successful approval of ANY format claims
+ * projects.status='ready_to_download' — the deferral Step 9's cover_approved
+ * deliberately declined to make is finally resolved here, since Export is the last
+ * content/design/format gate before Pricing (Step 12).
+ */
+export async function approveExport(params: ApproveExportParams): Promise<ExportFormatStateRow> {
+  const { supabase, projectId, outputFormat, userId } = params;
+  const state = await requireDraftFormatState({ supabase, projectId, outputFormat });
+  assertCanApprove(state.current_export_generation_id);
+
+  const { data: updated, error: updateErr } = await supabase
+    .from('export_format_states')
+    .update({ status: 'confirmed', approval_status: 'approved', approved_at: new Date().toISOString(), approved_by: userId })
+    .eq('id', state.id)
+    .select()
+    .single();
+  if (updateErr || !updated) throw new Error(`Failed to approve ${outputFormat} export: ${updateErr?.message}`);
+
+  const { error: statusErr } = await supabase.from('projects').update({ status: 'ready_to_download' }).eq('id', projectId);
+  if (statusErr) throw new Error(`Failed to update project status: ${statusErr.message}`);
+
+  return updated as ExportFormatStateRow;
+}
+
+interface UnlockExportParams {
+  supabase: SupabaseClient;
+  projectId: string;
+  outputFormat: ExportOutputFormat;
+}
+
+/** Content-preserving unlock, per format — nothing in export_generations/export_field_maps or Storage is touched. */
+export async function unlockExport(params: UnlockExportParams): Promise<ExportFormatStateRow> {
+  const { supabase, projectId, outputFormat } = params;
+
+  const { data: existing, error: existingErr } = await supabase.from('export_format_states').select('id, status').eq('project_id', projectId).eq('output_format', outputFormat).single();
+  if (existingErr || !existing) throw new Error(`No export found for format "${outputFormat}": ${existingErr?.message}`);
+  if (existing.status !== 'confirmed') throw new Error(`The ${outputFormat} export is not confirmed — nothing to unlock`);
+
+  const { data: updated, error: updateErr } = await supabase
+    .from('export_format_states')
+    .update({ status: 'draft', approval_status: 'pending', approved_at: null, approved_by: null })
+    .eq('id', existing.id)
+    .select()
+    .single();
+  if (updateErr || !updated) throw new Error(`Failed to unlock ${outputFormat} export: ${updateErr?.message}`);
+
+  await revertProjectStatusIfNoOtherApproved(supabase, projectId, existing.id);
+
+  return updated as ExportFormatStateRow;
+}
+
+interface GetCurrentExportFormatStateParams {
+  supabase: SupabaseClient;
+  projectId: string;
+  outputFormat: ExportOutputFormat;
+}
+
+export interface GetCurrentExportFormatStateResult {
+  formatState: ExportFormatStateRow | null;
+  isStale: boolean;
+  staleReason: DocumentStalenessReason;
+}
+
+/**
+ * §7's 4-way soft staleness check (title > format > content bodies > cover),
+ * checked independently per format — the build-time completion from Increment 1
+ * carried through to its final use. A confirmed format reverts to draft/pending if
+ * stale; content is untouched either way. Reverting projects.status follows the same
+ * per-format-independence rule unlockExport uses.
+ */
+export async function getCurrentExportFormatState(params: GetCurrentExportFormatStateParams): Promise<GetCurrentExportFormatStateResult> {
+  const { supabase, projectId, outputFormat } = params;
+
+  const { data: project, error: projectErr } = await supabase.from('projects').select('selected_candidate_id, current_format_recommendation_id').eq('id', projectId).single();
+  if (projectErr || !project) throw new Error(`Failed to load project: ${projectErr?.message ?? 'not found'}`);
+
+  const { data: state, error: stateErr } = await supabase.from('export_format_states').select('*').eq('project_id', projectId).eq('output_format', outputFormat).maybeSingle();
+  if (stateErr) throw new Error(`Failed to load export format state: ${stateErr.message}`);
+  if (!state) return { formatState: null, isStale: false, staleReason: null };
+
+  const { data: contentBuild, error: contentBuildErr } = await supabase.from('content_builds').select('confirmed_at, updated_at').eq('project_id', projectId).maybeSingle();
+  if (contentBuildErr) throw new Error(`Failed to load content build for staleness check: ${contentBuildErr.message}`);
+
+  const { data: coverDesign, error: coverDesignErr } = await supabase.from('cover_designs').select('current_cover_generation_id').eq('project_id', projectId).maybeSingle();
+  if (coverDesignErr) throw new Error(`Failed to load cover design for staleness check: ${coverDesignErr.message}`);
+
+  const staleReason = detectDocumentStalenessReason(
+    {
+      titleCandidateId: state.title_candidate_id,
+      formatRecommendationId: state.format_recommendation_id,
+      contentBuildConfirmedAt: state.content_build_confirmed_at,
+      coverGenerationId: state.cover_generation_id,
+    },
+    {
+      selectedCandidateId: project.selected_candidate_id,
+      currentFormatRecommendationId: project.current_format_recommendation_id,
+      contentBuildSnapshotAt: contentBuild ? (contentBuild.confirmed_at ?? contentBuild.updated_at) : null,
+      currentCoverGenerationId: coverDesign?.current_cover_generation_id ?? null,
+    },
+  );
+
+  let currentState = state as ExportFormatStateRow;
+  if (staleReason !== null && currentState.status === 'confirmed') {
+    const { data: reverted, error: revertErr } = await supabase
+      .from('export_format_states')
+      .update({ status: 'draft', approval_status: 'pending', approved_at: null, approved_by: null })
+      .eq('id', currentState.id)
+      .select()
+      .single();
+    if (revertErr || !reverted) throw new Error(`Failed to revert stale ${outputFormat} export: ${revertErr?.message}`);
+    currentState = reverted as ExportFormatStateRow;
+
+    await revertProjectStatusIfNoOtherApproved(supabase, projectId, currentState.id);
+  }
+
+  return { formatState: currentState, isStale: staleReason !== null, staleReason };
 }
