@@ -47,6 +47,36 @@ describe('renderFillablePdfDocument', () => {
     expect(fieldCount).toBe(0);
   });
 
+  it('never throws on Unicode "smart typography" characters real AI-generated text commonly includes (live-caught in Increment 9)', async () => {
+    const unicodeHeavyBlocks: FieldStructureBlock[] = [
+      { fieldType: 'heading', text: 'Week 1‑Check‑In', order: 0 }, // non-breaking hyphens
+      { fieldType: 'instructional_paragraph', text: 'Set aside 25–30% for taxes — review “your” rate…', order: 1 }, // en dash, narrow no-break space, em dash, curly quotes, ellipsis
+      { fieldType: 'checklist_item', text: 'Logged today’s invoice', order: 2 }, // right single quote (apostrophe)
+    ];
+    const { buffer, fieldCount } = await renderFillablePdfDocument({
+      productTitle: 'Unicode Test',
+      coverImageBytes: Buffer.from(TINY_PNG_BASE64, 'base64'),
+      coverImageMimeType: 'image/png',
+      subtopics: [{ title: 'S', blocks: unicodeHeavyBlocks }],
+    });
+    expect(buffer.subarray(0, 4).toString('ascii')).toBe('%PDF');
+    expect(fieldCount).toBe(1);
+  });
+
+  it('never throws on arbitrary unencodable characters — a genuinely general fix, not another entry in a list (arrows, emoji, box-drawing, math symbols)', async () => {
+    const adversarialBlocks: FieldStructureBlock[] = [
+      { fieldType: 'instructional_paragraph', text: 'Before → After: track your progress 📈 with a ✓ each day, using ≥ 80% consistency as the ★ goal ┃ divider │.', order: 0 },
+      { fieldType: 'user_input_blank', text: 'Amount saved this month: ¥€£₹____', order: 1 },
+    ];
+    const { buffer } = await renderFillablePdfDocument({
+      productTitle: 'Adversarial Unicode Test',
+      coverImageBytes: Buffer.from(TINY_PNG_BASE64, 'base64'),
+      coverImageMimeType: 'image/png',
+      subtopics: [{ title: 'S', blocks: adversarialBlocks }],
+    });
+    expect(buffer.subarray(0, 4).toString('ascii')).toBe('%PDF');
+  });
+
   it('paginates correctly across many blocks without losing any real fields', async () => {
     const manyBlocks: FieldStructureBlock[] = Array.from({ length: 40 }, (_, i) => ({
       fieldType: 'checklist_item' as const,

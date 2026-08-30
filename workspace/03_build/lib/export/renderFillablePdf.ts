@@ -28,6 +28,54 @@ const HEADING_FONT_SIZE = 16;
 const CHECKBOX_SIZE = 12;
 const TEXT_FIELD_HEIGHT = 20;
 
+// Live-caught during Increment 9's end-to-end smoke test: pdf-lib's StandardFonts draw
+// text using WinAnsi encoding, which cannot represent every Unicode character real
+// AI-generated text produces. This started as a per-character allowlist (a
+// non-breaking hyphen, then a narrow no-break space, then a rightwards arrow — three
+// different Unicode blocks across three separate live runs) — genuine whack-a-mole,
+// since there is no bounded set of "characters an LLM might produce." Fixed properly
+// instead: ask pdf-lib itself whether a character is encodable (the same check
+// drawText relies on internally, surfaced here ahead of time via widthOfTextAtSize)
+// rather than maintaining a growing guess-list of Unicode blocks. Known-common
+// substitutions still get a meaningful ASCII equivalent; anything else pdf-lib can't
+// encode falls back to a plain space — a general, guaranteed catch-all that cannot
+// throw regardless of what character shows up next.
+const KNOWN_SUBSTITUTIONS: ReadonlyArray<readonly [string, string]> = [
+  ['‐', '-'], // hyphen
+  ['‑', '-'], // non-breaking hyphen
+  ['‒', '-'], // figure dash
+  ['–', '-'], // en dash
+  ['—', '--'], // em dash
+  ['‘', "'"], // left single quote
+  ['’', "'"], // right single quote
+  ['“', '"'], // left double quote
+  ['”', '"'], // right double quote
+  ['…', '...'], // ellipsis
+  ['→', '->'], // rightwards arrow
+  ['←', '<-'], // leftwards arrow
+  ['•', '-'], // bullet
+  ['✓', 'x'], // check mark
+];
+
+function isEncodableByFont(font: PDFFont, char: string): boolean {
+  try {
+    font.widthOfTextAtSize(char, 1);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeForFont(text: string, font: PDFFont): string {
+  let result = text;
+  for (const [unicodeChar, asciiChar] of KNOWN_SUBSTITUTIONS) {
+    result = result.split(unicodeChar).join(asciiChar);
+  }
+  return Array.from(result)
+    .map((char) => (isEncodableByFont(font, char) ? char : ' '))
+    .join('');
+}
+
 /**
  * §2.3's geometry-bridging problem, resolved by not bridging at all: rather than
  * extracting computed layout geometry from @react-pdf/renderer (Increment 5's engine)
@@ -83,29 +131,33 @@ export async function renderFillablePdfDocument(input: RenderFillablePdfInput): 
   for (const subtopic of input.subtopics) {
     for (const block of subtopic.blocks) {
       if (block.fieldType === 'heading') {
+        const text = sanitizeForFont(block.text, boldFont);
         ensureSpace(HEADING_FONT_SIZE + 12);
         y -= HEADING_FONT_SIZE;
-        page.drawText(block.text, { x: MARGIN, y, size: HEADING_FONT_SIZE, font: boldFont });
+        page.drawText(text, { x: MARGIN, y, size: HEADING_FONT_SIZE, font: boldFont });
         y -= 12;
       } else if (block.fieldType === 'instructional_paragraph' || block.fieldType === 'table_row') {
-        for (const line of wrapText(block.text, font, FONT_SIZE, CONTENT_WIDTH)) {
+        const text = sanitizeForFont(block.text, font);
+        for (const line of wrapText(text, font, FONT_SIZE, CONTENT_WIDTH)) {
           ensureSpace(LINE_HEIGHT);
           y -= LINE_HEIGHT;
           page.drawText(line, { x: MARGIN, y, size: FONT_SIZE, font });
         }
         y -= 6;
       } else if (block.fieldType === 'checklist_item') {
+        const text = sanitizeForFont(block.text, font);
         ensureSpace(LINE_HEIGHT + 4);
         y -= LINE_HEIGHT;
         const checkbox = form.createCheckBox(`checklist_${fieldCount}`);
         checkbox.addToPage(page, { x: MARGIN, y: y - 2, width: CHECKBOX_SIZE, height: CHECKBOX_SIZE });
         fieldCount++;
-        page.drawText(block.text, { x: MARGIN + CHECKBOX_SIZE + 8, y, size: FONT_SIZE, font });
+        page.drawText(text, { x: MARGIN + CHECKBOX_SIZE + 8, y, size: FONT_SIZE, font });
         y -= 4;
       } else if (block.fieldType === 'user_input_blank') {
+        const text = sanitizeForFont(block.text, font);
         ensureSpace(LINE_HEIGHT + TEXT_FIELD_HEIGHT + 12);
         y -= LINE_HEIGHT;
-        page.drawText(block.text, { x: MARGIN, y, size: FONT_SIZE, font });
+        page.drawText(text, { x: MARGIN, y, size: FONT_SIZE, font });
         y -= TEXT_FIELD_HEIGHT + 4;
         const textField = form.createTextField(`input_${fieldCount}`);
         textField.addToPage(page, { x: MARGIN, y, width: CONTENT_WIDTH, height: TEXT_FIELD_HEIGHT });
