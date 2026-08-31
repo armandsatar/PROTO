@@ -29,7 +29,11 @@ export async function researchTitle(title: string): Promise<TitleResearchResult>
   );
 
   const demand = computeDemandScore(exactAngleListings);
-  const competition = computeCompetitionScore(exactAngleListings.length, searchResult.totalCount);
+  const competition = computeCompetitionScore(
+    exactAngleListings.length,
+    searchResult.totalCount,
+    exactAngleListings.map((l) => l.price),
+  );
 
   return {
     demand,

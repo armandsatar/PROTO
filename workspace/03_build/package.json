@@ -24,6 +24,7 @@
     "smoke:copy-ai": "tsx --env-file=.env scripts/smoke-test-copy-ai.ts",
     "smoke:copy": "tsx --env-file=.env scripts/smoke-test-copy.ts",
     "smoke:export": "node --env-file=.env node_modules/.bin/vite-node scripts/smoke-test-export.ts",
+    "smoke:pricing": "node --env-file=.env node_modules/.bin/vite-node scripts/smoke-test-pricing.ts",
     "verify:field-structure": "tsx --env-file=.env scripts/verify-field-structure-connector.ts",
     "verify:pdf-rendering": "vite-node scripts/verify-pdf-rendering.ts",
     "verify:fillable-pdf": "tsx --env-file=.env scripts/verify-fillable-pdf-fields.ts",

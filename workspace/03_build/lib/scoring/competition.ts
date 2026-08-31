@@ -24,10 +24,17 @@ const BROAD_VOLUME_WEIGHT = 0.3;
  * permanently out of scope per decisions 1, 10). `exactAngleMatchCount` is the count of
  * top-20 results classified exact-angle (Increment 4); `totalListingCount` is the raw
  * search result count (EtsySearchResult.totalCount) — the "broad-topic volume" signal.
+ *
+ * `exactAngleMatchPrices` is optional — when provided, captures the prices of
+ * exact-angle-match listings for later use by Step 12 (Pricing Recommendation).
+ * Phase 1 requirements §2.1: "Etsy price range: worth capturing now since the API
+ * call is already being made." Adding this does not change the competition score
+ * itself — it's persisted in `detail` for downstream consumption only.
  */
 export function computeCompetitionScore(
   exactAngleMatchCount: number,
   totalListingCount: number,
+  exactAngleMatchPrices?: number[],
 ): ScoreResult {
   const exactAngleSub = exactAngleSubScore(exactAngleMatchCount);
   const broadVolumeSub = broadVolumeSubScore(totalListingCount);
@@ -44,6 +51,7 @@ export function computeCompetitionScore(
       exactAngleSubScore: exactAngleSub,
       broadVolumeSubScore: broadVolumeSub,
       weights: { exactAngle: EXACT_ANGLE_WEIGHT, broadVolume: BROAD_VOLUME_WEIGHT },
+      ...(exactAngleMatchPrices ? { exactAngleMatchPrices } : {}),
     },
   };
 }
